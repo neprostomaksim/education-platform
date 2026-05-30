@@ -6,12 +6,10 @@ export function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       auth: {
-        lock: async (...args) => {
+        lock: async (...args: any[]) => {
           // Bypass navigator.locks entirely to fix hanging requests on page reload
           const acquire = args.find(arg => typeof arg === 'function');
-          if (acquire) {
-            return await acquire();
-          }
+          return await acquire();
         },
       },
     }
