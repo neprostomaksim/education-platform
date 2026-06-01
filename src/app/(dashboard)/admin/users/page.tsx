@@ -129,7 +129,7 @@ export default function AdminUsersPage() {
                         )}
                         <div>
                           <div className="font-medium text-foreground">{user.full_name || "Без имени"}</div>
-                          <div className="text-xs text-muted font-mono">{user.id.slice(0,8)}...</div>
+                          <div className="text-xs text-muted">{user.email || "Нет email"}</div>
                         </div>
                       </div>
                     </td>
