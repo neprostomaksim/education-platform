@@ -256,28 +256,46 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
                   </span>
                 </button>
 
-                {expandedTopics.has(topic.id) && (
-                  <div className="ml-4 pl-2 border-l border-border space-y-0.5 mb-2">
-                    {topic.lessons.map(l => (
-                      <Link
-                        key={l.id}
-                        href={`/lessons/${l.id}`}
-                        onClick={() => setSidebarOpen(false)}
-                        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                          l.id === lessonId
-                            ? 'bg-accent/10 text-accent font-medium'
-                            : 'text-muted hover:text-foreground hover:bg-sidebar-hover'
-                        }`}
-                      >
-                        {l.completed ? (
-                          <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
-                        ) : l.id === lessonId ? (
-                          <Play className="w-4 h-4 text-accent shrink-0" />
-                        ) : (
-                          <Circle className="w-4 h-4 shrink-0" />
+                 {expandedTopics.has(topic.id) && (
+                  <div className="ml-4 pl-2 border-l border-border space-y-3 mb-2 mt-1">
+                    {Object.entries(
+                      topic.lessons.reduce((acc, l) => {
+                        const block = l.block_name || "";
+                        if (!acc[block]) acc[block] = [];
+                        acc[block].push(l);
+                        return acc;
+                      }, {} as Record<string, typeof topic.lessons>)
+                    ).map(([blockName, blockLessons]) => (
+                      <div key={blockName} className="space-y-1">
+                        {blockName && (
+                          <div className="px-2 py-0.5 text-[9px] font-bold text-accent/80 bg-accent/5 rounded uppercase tracking-wider select-none">
+                            {blockName}
+                          </div>
                         )}
-                        <span className="truncate">{l.title}</span>
-                      </Link>
+                        <div className="space-y-0.5">
+                          {blockLessons.map(l => (
+                            <Link
+                              key={l.id}
+                              href={`/lessons/${l.id}`}
+                              onClick={() => setSidebarOpen(false)}
+                              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                                l.id === lessonId
+                                  ? 'bg-accent/10 text-accent font-medium'
+                                  : 'text-muted hover:text-foreground hover:bg-sidebar-hover'
+                              }`}
+                            >
+                              {l.completed ? (
+                                <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+                              ) : l.id === lessonId ? (
+                                <Play className="w-4 h-4 text-accent shrink-0" />
+                              ) : (
+                                <Circle className="w-4 h-4 shrink-0" />
+                              )}
+                              <span className="truncate">{l.title}</span>
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </div>
                 )}

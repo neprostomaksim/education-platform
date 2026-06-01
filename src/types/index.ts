@@ -37,6 +37,7 @@ export interface Topic {
   icon: string;
   gradient: string;
   sort_order: number;
+  block_name: string | null;
   is_published: boolean;
   created_at: string;
 }
@@ -49,6 +50,7 @@ export interface Lesson {
   video_url: string | null;
   sort_order: number;
   duration_minutes: number;
+  block_name: string | null;
   is_published: boolean;
   created_at: string;
 }

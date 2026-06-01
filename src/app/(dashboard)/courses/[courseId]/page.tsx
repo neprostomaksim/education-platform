@@ -165,66 +165,87 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
           <p className="text-sm text-muted">Контент скоро появится</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {course.topics.map((topic) => {
-            const topicProgress = calculateProgress(
-              topic.completedLessons,
-              topic.totalLessons
-            );
-            const firstIncomplete = topic.lessons.find(
-              (_, i) => i >= topic.completedLessons
-            );
-
-            return (
-              <Link
-                key={topic.id}
-                href={
-                  firstIncomplete
-                    ? `/lessons/${firstIncomplete.id}`
-                    : topic.lessons[0]
-                    ? `/lessons/${topic.lessons[0].id}`
-                    : `/courses/${course.id}`
-                }
-                className="group"
-              >
-                <div className="bg-card rounded-2xl border border-border p-6 hover:border-border-hover hover:bg-card-hover transition-all duration-300 hover-lift relative overflow-hidden">
-                  <div className="flex items-start gap-4 mb-5 relative z-10">
-                    <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center text-accent shrink-0 group-hover:scale-110 transition-transform duration-300">
-                      {iconMap[topic.icon] || <BookOpen className="w-6 h-6" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-foreground mb-1 truncate">
-                        {topic.title}
-                      </h3>
-                      <p className="text-sm text-muted line-clamp-2">
-                        {topic.description}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Progress Bar */}
-                  <div className="mb-3 relative z-10">
-                    <div className="w-full h-2 bg-border rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-accent rounded-full transition-all duration-500"
-                        style={{ width: `${topicProgress}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between relative z-10">
-                    <div className="flex items-center gap-1.5 text-xs text-muted">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      {topic.completedLessons} / {topic.totalLessons} уроков
-                    </div>
-                    <span className="text-xs font-medium text-accent">
-                      {topicProgress}%
-                    </span>
-                  </div>
+        <div className="space-y-8">
+          {Object.entries(
+            course.topics.reduce((acc, t) => {
+              const block = t.block_name || "";
+              if (!acc[block]) acc[block] = [];
+              acc[block].push(t);
+              return acc;
+            }, {} as Record<string, typeof course.topics>)
+          ).map(([blockName, blockTopics]) => (
+            <div key={blockName} className="space-y-4">
+              {blockName && (
+                <div className="flex items-center gap-3">
+                  <h3 className="text-lg font-semibold text-foreground/90 uppercase tracking-wide">
+                    {blockName}
+                  </h3>
+                  <div className="h-px bg-border flex-1" />
                 </div>
-              </Link>
-            );
-          })}
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {blockTopics.map((topic) => {
+                  const topicProgress = calculateProgress(
+                    topic.completedLessons,
+                    topic.totalLessons
+                  );
+                  const firstIncomplete = topic.lessons.find(
+                    (_, i) => i >= topic.completedLessons
+                  );
+
+                  return (
+                    <Link
+                      key={topic.id}
+                      href={
+                        firstIncomplete
+                          ? `/lessons/${firstIncomplete.id}`
+                          : topic.lessons[0]
+                          ? `/lessons/${topic.lessons[0].id}`
+                          : `/courses/${course.id}`
+                      }
+                      className="group"
+                    >
+                      <div className="bg-card rounded-2xl border border-border p-6 hover:border-border-hover hover:bg-card-hover transition-all duration-300 hover-lift relative overflow-hidden">
+                        <div className="flex items-start gap-4 mb-5 relative z-10">
+                          <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center text-accent shrink-0 group-hover:scale-110 transition-transform duration-300">
+                            {iconMap[topic.icon] || <BookOpen className="w-6 h-6" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-foreground mb-1 truncate">
+                              {topic.title}
+                            </h3>
+                            <p className="text-sm text-muted line-clamp-2">
+                              {topic.description}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="mb-3 relative z-10">
+                          <div className="w-full h-2 bg-border rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-accent rounded-full transition-all duration-500"
+                              style={{ width: `${topicProgress}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between relative z-10">
+                          <div className="flex items-center gap-1.5 text-xs text-muted">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            {topic.completedLessons} / {topic.totalLessons} уроков
+                          </div>
+                          <span className="text-xs font-medium text-accent">
+                            {topicProgress}%
+                          </span>
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
