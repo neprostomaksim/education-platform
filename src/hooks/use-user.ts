@@ -1,23 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile } from "@/types";
 import type { User } from "@supabase/supabase-js";
 
-// Timeout wrapper to prevent hanging requests
-function withTimeout<T>(promise: Promise<T> | PromiseLike<T>, ms: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Request timed out")), ms);
-    Promise.resolve(promise).then(
-      (val) => { clearTimeout(timer); resolve(val); },
-      (err) => { clearTimeout(timer); reject(err); }
-    );
-  });
+interface UserContextType {
+  user: User | null;
+  profile: Profile | null;
+  loading: boolean;
 }
 
-export function useUser() {
+const UserContext = createContext<UserContextType>({
+  user: null,
+  profile: null,
+  loading: true,
+});
+
+export function UserProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,33 +27,14 @@ export function useUser() {
 
   useEffect(() => {
     let mounted = true;
-    
-    // Failsafe timeout: if 4 seconds pass and we are still loading, force it to false
-    const failsafe = setTimeout(() => {
-      if (mounted && loading) {
-        console.warn("Failsafe triggered: useUser loading took more than 4 seconds.");
-        setLoading(false);
-      }
-    }, 4000);
 
-    const getUser = async () => {
-      console.log("useUser: Starting getUser...");
+    const loadUserAndProfile = async () => {
+      console.log("UserProvider: Starting initial load...");
       try {
-        let user = null;
-        let userError = null;
-
-        try {
-          console.log("useUser: Calling supabase.auth.getSession()...");
-          const result = await withTimeout(supabase.auth.getSession(), 2000);
-          console.log("useUser: getSession returned", result);
-          user = result.data.session?.user ?? null;
-          userError = result.error;
-        } catch (e) {
-          console.warn("useUser: getSession timed out", e);
-        }
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
-        if (userError && !user) {
-          console.warn("useUser: Auth error, clearing session:", userError.message);
+        if (sessionError) {
+          console.warn("UserProvider: Session error:", sessionError);
           if (mounted) {
             setUser(null);
             setProfile(null);
@@ -60,40 +42,37 @@ export function useUser() {
           }
           return;
         }
-        
-        if (mounted) setUser(user);
 
-        if (user) {
-          console.log("useUser: Fetching profile...");
-          try {
-            const { data: profile } = await withTimeout(
-              supabase.from("profiles").select("*").eq("id", user.id).single(),
-              2000
-            );
-            console.log("useUser: Profile fetched.");
-            if (mounted) setProfile(profile);
-          } catch (profileError) {
-            console.warn("useUser: Profile fetch failed or timed out:", profileError);
+        const currentUser = session?.user ?? null;
+        if (mounted) setUser(currentUser);
+
+        if (currentUser) {
+          console.log("UserProvider: Fetching profile for user:", currentUser.id);
+          const { data: profileData, error: profileError } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", currentUser.id)
+            .single();
+
+          if (profileError) {
+            console.warn("UserProvider: Profile query error:", profileError);
+          } else if (mounted) {
+            setProfile(profileData);
           }
         }
-      } catch (error) {
-        console.warn("useUser: Error loading user:", error);
-        if (mounted) {
-          setUser(null);
-          setProfile(null);
-        }
+      } catch (err) {
+        console.error("UserProvider: Critical error loading user:", err);
       } finally {
-        console.log("useUser: getUser complete, setting loading=false");
         if (mounted) setLoading(false);
       }
     };
 
-    getUser();
+    loadUserAndProfile();
 
-    console.log("useUser: Setting up onAuthStateChange...");
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log("useUser: onAuthStateChange event:", event);
+        console.log("UserProvider: Auth state changed:", event);
+        
         if (event === 'SIGNED_OUT') {
           if (mounted) {
             setUser(null);
@@ -104,18 +83,16 @@ export function useUser() {
           return;
         }
 
-        if (mounted) setUser(session?.user ?? null);
-        if (session?.user) {
-          try {
-            const { data: profile } = await supabase
-              .from("profiles")
-              .select("*")
-              .eq("id", session.user.id)
-              .single();
-            if (mounted) setProfile(profile);
-          } catch (error) {
-            console.warn("useUser: Error loading profile on auth change:", error);
-          }
+        const currentUser = session?.user ?? null;
+        if (mounted) setUser(currentUser);
+
+        if (currentUser) {
+          const { data: profileData } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", currentUser.id)
+            .single();
+          if (mounted) setProfile(profileData);
         } else {
           if (mounted) setProfile(null);
         }
@@ -124,10 +101,13 @@ export function useUser() {
 
     return () => {
       mounted = false;
-      clearTimeout(failsafe);
       subscription.unsubscribe();
     };
   }, []);
 
-  return { user, profile, loading };
+  return React.createElement(UserContext.Provider, { value: { user, profile, loading } }, children);
+}
+
+export function useUser() {
+  return useContext(UserContext);
 }
