@@ -63,11 +63,16 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
     return lesson.content.includes("<!-- SPEC:");
   }, [lesson?.content]);
 
-  // Filter content by selected specialty
+  // Filter content by selected specialty and strip duplicate H1 title
   const filteredContent = useMemo(() => {
     if (!lesson?.content) return "";
-    if (!hasSpecialtyContent) return lesson.content;
-    return filterContentBySpecialty(lesson.content, selectedSpecialty);
+    const rawContent = hasSpecialtyContent
+      ? filterContentBySpecialty(lesson.content, selectedSpecialty)
+      : lesson.content;
+
+    // Remove the first H1 header (# Title) at the start of markdown to prevent duplication with the page header
+    const trimmed = rawContent.trimStart();
+    return trimmed.replace(/^#\s+[^\r\n]+(\r?\n)*/, "");
   }, [lesson?.content, selectedSpecialty, hasSpecialtyContent]);
 
   useEffect(() => {
