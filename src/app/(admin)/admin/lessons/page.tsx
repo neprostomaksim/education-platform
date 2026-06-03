@@ -17,7 +17,7 @@ export default function LessonsListPage() {
       .select("*, topic:topics(*)")
       .order("sort_order");
     
-    const mapped = (data || []).map(d => ({
+    const mapped = (data || []).map((d: any) => ({
       ...d,
       topic: Array.isArray(d.topic) ? d.topic[0] : d.topic,
     }));

@@ -26,7 +26,8 @@ export default function NewTopicPage() {
   useEffect(() => {
     if (editId) {
       setIsEditing(true);
-      supabase.from("topics").select("*").eq("id", editId).single().then(({ data }) => {
+      const fetchData = async () => {
+        const { data } = await supabase.from("topics").select("*").eq("id", editId).single();
         if (data) {
           setTitle(data.title);
           setDescription(data.description || "");
@@ -35,7 +36,8 @@ export default function NewTopicPage() {
           setSortOrder(data.sort_order);
           setIsPublished(data.is_published);
         }
-      });
+      };
+      fetchData();
     }
   }, [editId]);
 

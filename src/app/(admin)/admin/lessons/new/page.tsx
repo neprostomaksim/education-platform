@@ -27,25 +27,31 @@ export default function NewLessonPage() {
   const editId = searchParams.get("edit");
 
   useEffect(() => {
-    supabase.from("topics").select("*").order("sort_order").then(({ data }) => {
-      setTopics(data || []);
-      if (data && data.length > 0 && !topicId) setTopicId(data[0].id);
-    });
-
-    if (editId) {
-      setIsEditing(true);
-      supabase.from("lessons").select("*").eq("id", editId).single().then(({ data }) => {
-        if (data) {
-          setTitle(data.title);
-          setTopicId(data.topic_id);
-          setContent(data.content || "");
-          setVideoUrl(data.video_url || "");
-          setSortOrder(data.sort_order);
-          setDurationMinutes(data.duration_minutes);
-          setIsPublished(data.is_published);
+    const fetchData = async () => {
+      const { data: topicsData } = await supabase.from("topics").select("*").order("sort_order");
+      if (topicsData) {
+        setTopics(topicsData);
+        if (topicsData.length > 0 && !topicId) {
+          setTopicId(topicsData[0].id);
         }
-      });
-    }
+      }
+
+      if (editId) {
+        setIsEditing(true);
+        const { data: lessonData } = await supabase.from("lessons").select("*").eq("id", editId).single();
+        if (lessonData) {
+          setTitle(lessonData.title);
+          setTopicId(lessonData.topic_id);
+          setContent(lessonData.content || "");
+          setVideoUrl(lessonData.video_url || "");
+          setSortOrder(lessonData.sort_order);
+          setDurationMinutes(lessonData.duration_minutes);
+          setIsPublished(lessonData.is_published);
+        }
+      }
+    };
+
+    fetchData();
   }, [editId]);
 
   const handleSubmit = async (e: React.FormEvent) => {

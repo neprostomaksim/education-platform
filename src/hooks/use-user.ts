@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile } from "@/types";
@@ -19,9 +19,24 @@ const UserContext = createContext<UserContextType>({
 });
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [user, setUserState] = useState<User | null>(null);
+  const [profile, setProfileState] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  const lastTokenRef = useRef<string | null>(null);
+  const currentUserRef = useRef<User | null>(null);
+  const currentProfileRef = useRef<Profile | null>(null);
+
+  const setUser = (u: User | null) => {
+    currentUserRef.current = u;
+    setUserState(u);
+  };
+
+  const setProfile = (p: Profile | null) => {
+    currentProfileRef.current = p;
+    setProfileState(p);
+  };
+
   const supabase = createClient();
   const router = useRouter();
 
@@ -44,6 +59,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         }
 
         const currentUser = session?.user ?? null;
+        const currentToken = session?.access_token ?? null;
+        
+        lastTokenRef.current = currentToken;
         if (mounted) setUser(currentUser);
 
         if (currentUser) {
@@ -74,6 +92,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         console.log("UserProvider: Auth state changed:", event);
         
         if (event === 'SIGNED_OUT') {
+          lastTokenRef.current = null;
           if (mounted) {
             setUser(null);
             setProfile(null);
@@ -84,9 +103,23 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         }
 
         const currentUser = session?.user ?? null;
+        const currentToken = session?.access_token ?? null;
+
+        // Skip redundant profile fetches if the session token hasn't changed and profile exists
+        if (
+          currentToken === lastTokenRef.current &&
+          currentUserRef.current !== null &&
+          currentProfileRef.current !== null
+        ) {
+          console.log("UserProvider: Token has not changed. Skipping profile fetch.");
+          return;
+        }
+
+        lastTokenRef.current = currentToken;
         if (mounted) setUser(currentUser);
 
         if (currentUser) {
+          console.log("UserProvider: Fetching profile for user on auth change:", currentUser.id);
           const { data: profileData } = await supabase
             .from("profiles")
             .select("*")

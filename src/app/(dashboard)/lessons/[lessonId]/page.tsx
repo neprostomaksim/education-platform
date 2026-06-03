@@ -131,12 +131,11 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
 
         const completedIds = new Set(progressData.filter(p => p.completed).map(p => p.lesson_id));
         setIsCompleted(completedIds.has(lessonId));
-
-        const topicsWithLessons: TopicWithLessons[] = (topicsData || []).map(topic => ({
+        const topicsWithLessons: TopicWithLessons[] = (topicsData || []).map((topic: any) => ({
           ...topic,
           lessons: (lessonsData || [])
-            .filter(l => l.topic_id === topic.id)
-            .map(l => ({ ...l, completed: completedIds.has(l.id) })),
+            .filter((l: any) => l.topic_id === topic.id)
+            .map((l: any) => ({ ...l, completed: completedIds.has(l.id) })),
         }));
 
         setTopics(topicsWithLessons);
