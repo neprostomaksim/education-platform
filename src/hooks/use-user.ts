@@ -119,13 +119,25 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         if (mounted) setUser(currentUser);
 
         if (currentUser) {
-          console.log("UserProvider: Fetching profile for user on auth change:", currentUser.id);
-          const { data: profileData } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", currentUser.id)
-            .single();
-          if (mounted) setProfile(profileData);
+          console.log("UserProvider: Fetching profile for user on auth change (deferred):", currentUser.id);
+          // Defer the database query to the next tick of the event loop to release Supabase auth lock first
+          setTimeout(async () => {
+            if (!mounted) return;
+            try {
+              const { data: profileData, error } = await supabase
+                .from("profiles")
+                .select("*")
+                .eq("id", currentUser.id)
+                .single();
+              if (error) {
+                console.warn("UserProvider: Deferred profile fetch error:", error);
+              } else if (mounted) {
+                setProfile(profileData);
+              }
+            } catch (err) {
+              console.error("UserProvider: Deferred profile fetch critical error:", err);
+            }
+          }, 0);
         } else {
           if (mounted) setProfile(null);
         }
