@@ -3,6 +3,12 @@
 -- Создание нового курса с 7 темами и 17 уроками
 -- ============================================================
 
+-- Очистка старых данных (если они были созданы ранее)
+DELETE FROM public.user_courses WHERE course_id = '990e8400-e29b-41d4-a716-446655440001';
+DELETE FROM public.lessons WHERE topic_id IN (SELECT id FROM public.topics WHERE course_id = '990e8400-e29b-41d4-a716-446655440001');
+DELETE FROM public.topics WHERE course_id = '990e8400-e29b-41d4-a716-446655440001';
+DELETE FROM public.courses WHERE id = '990e8400-e29b-41d4-a716-446655440001';
+
 -- 1. Создание курса
 INSERT INTO public.courses (id, title, description, gradient, is_published)
 VALUES (
