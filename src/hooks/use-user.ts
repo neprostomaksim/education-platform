@@ -88,7 +88,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     loadUserAndProfile();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      async (event: any, session: any) => {
         console.log("UserProvider: Auth state changed:", event);
         
         if (event === 'SIGNED_OUT') {
@@ -144,9 +144,55 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
+    // Re-validate auth session when the user returns to this browser tab.
+    // When the tab is backgrounded, the JS event loop freezes and the auth
+    // token may silently expire. Calling getSession() on visibility change
+    // forces Supabase to refresh the token if needed.
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState !== "visible" || !mounted) return;
+
+      console.log("UserProvider: Tab became visible, re-validating session...");
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.warn("UserProvider: Visibility re-validation error:", error);
+          return;
+        }
+
+        const newToken = session?.access_token ?? null;
+        const newUser = session?.user ?? null;
+
+        // If the token changed while we were away, update state
+        if (newToken !== lastTokenRef.current) {
+          console.log("UserProvider: Token changed while tab was hidden, updating...");
+          lastTokenRef.current = newToken;
+          if (mounted) setUser(newUser);
+
+          if (newUser) {
+            const { data: profileData, error: profileError } = await supabase
+              .from("profiles")
+              .select("*")
+              .eq("id", newUser.id)
+              .single();
+            if (!profileError && mounted) {
+              setProfile(profileData);
+            }
+          } else if (mounted) {
+            setUser(null);
+            setProfile(null);
+          }
+        }
+      } catch (err) {
+        console.error("UserProvider: Visibility re-validation critical error:", err);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
       mounted = false;
       subscription.unsubscribe();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 

@@ -46,15 +46,15 @@ export function useTopics(userId?: string) {
 
         const completedLessonIds = new Set(progressData.map((p) => p.lesson_id));
 
-        const topicsWithProgress: TopicWithProgress[] = topicsData.map((topic) => {
+        const topicsWithProgress: TopicWithProgress[] = topicsData.map((topic: any) => {
           const topicLessons = (lessonsData || []).filter(
-            (l) => l.topic_id === topic.id
+            (l: any) => l.topic_id === topic.id
           );
           return {
             ...topic,
             lessons: topicLessons,
             totalLessons: topicLessons.length,
-            completedLessons: topicLessons.filter((l) =>
+            completedLessons: topicLessons.filter((l: any) =>
               completedLessonIds.has(l.id)
             ).length,
           };

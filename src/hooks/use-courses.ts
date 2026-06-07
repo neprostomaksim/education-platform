@@ -64,26 +64,26 @@ export function useCourses(userId?: string) {
         const completedLessonIds = new Set(progressData.map((p) => p.lesson_id));
 
         // Group into topics with progress
-        const topicsWithProgress: TopicWithProgress[] = (topicsData || []).map((topic) => {
+        const topicsWithProgress: TopicWithProgress[] = (topicsData || []).map((topic: any) => {
           const topicLessons = (lessonsData || []).filter(
-            (l) => l.topic_id === topic.id
+            (l: any) => l.topic_id === topic.id
           );
           return {
             ...topic,
             lessons: topicLessons,
             totalLessons: topicLessons.length,
-            completedLessons: topicLessons.filter((l) =>
+            completedLessons: topicLessons.filter((l: any) =>
               completedLessonIds.has(l.id)
             ).length,
           };
         });
 
         // Group into courses
-        const coursesWithTopics: CourseWithTopics[] = coursesData.map((course) => {
-          const courseTopics = topicsWithProgress.filter((t) => t.course_id === course.id);
+        const coursesWithTopics: CourseWithTopics[] = coursesData.map((course: any) => {
+          const courseTopics = topicsWithProgress.filter((t: any) => t.course_id === course.id);
           const totalTopics = courseTopics.length;
           const completedTopics = courseTopics.filter(
-            (t) => t.totalLessons > 0 && t.completedLessons === t.totalLessons
+            (t: any) => t.totalLessons > 0 && t.completedLessons === t.totalLessons
           ).length;
 
           return {
