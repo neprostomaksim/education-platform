@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { Profile, Course, UserCourse } from "@/types";
 import { getInitials } from "@/lib/utils";
 import { useToast } from "@/components/shared/toast-provider";
-import { Shield, ShieldAlert, CheckCircle2, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { Shield, ShieldAlert, CheckCircle2, ChevronDown, ChevronUp, Loader2, UserPlus, X } from "lucide-react";
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<Profile[]>([]);
@@ -14,6 +14,15 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    fullName: "",
+    email: "",
+    password: "",
+    role: "student" as "admin" | "student",
+    isApproved: true,
+  });
+  const [isCreating, setIsCreating] = useState(false);
   
   const supabase = createClient();
   const { addToast } = useToast();
@@ -98,8 +107,76 @@ export default function AdminUsersPage() {
     return <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-accent" /></div>;
   }
 
+  const generatePassword = () => {
+    const length = 12;
+    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
+    let retVal = "";
+    for (let i = 0, n = charset.length; i < length; ++i) {
+      retVal += charset.charAt(Math.floor(Math.random() * n));
+    }
+    return retVal;
+  };
+
+  const resetForm = () => {
+    setFormData({
+      fullName: "",
+      email: "",
+      password: "",
+      role: "student",
+      isApproved: true,
+    });
+  };
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsCreating(true);
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(formData),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Не удалось создать пользователя");
+      }
+
+      addToast("Пользователь успешно создан", "success");
+      setIsAddModalOpen(false);
+      resetForm();
+      fetchData();
+    } catch (error: any) {
+      console.error(error);
+      addToast(error.message || "Ошибка при создании пользователя", "error");
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   return (
-    <div className="bg-card border border-border rounded-2xl overflow-hidden">
+    <div className="space-y-4">
+      <div className="flex justify-between items-center bg-card border border-border rounded-2xl p-4">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Список пользователей</h2>
+          <p className="text-xs text-muted">Зарегистрированные пользователи и их доступы</p>
+        </div>
+        <button
+          onClick={() => {
+            resetForm();
+            setIsAddModalOpen(true);
+          }}
+          className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-xl text-sm font-medium transition-all shadow-lg shadow-accent/10 hover:shadow-accent/20 cursor-pointer"
+        >
+          <UserPlus className="w-4 h-4" />
+          Добавить пользователя
+        </button>
+      </div>
+
+      <div className="bg-card border border-border rounded-2xl overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
@@ -232,6 +309,137 @@ export default function AdminUsersPage() {
           </tbody>
         </table>
       </div>
+    </div>
+      
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex justify-between items-center p-6 border-b border-border">
+              <h3 className="text-lg font-bold text-foreground">Добавить пользователя</h3>
+              <button 
+                onClick={() => {
+                  setIsAddModalOpen(false);
+                  resetForm();
+                }}
+                className="p-1 rounded-lg text-muted hover:text-foreground hover:bg-card-hover transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* Modal Body / Form */}
+            <form onSubmit={handleCreateUser} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-muted mb-1.5">
+                  ФИО
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.fullName}
+                  onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                  placeholder="Иван Иванов"
+                  className="w-full px-3 py-2 rounded-xl bg-card border border-border text-foreground text-sm focus:outline-none focus:border-accent transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-muted mb-1.5">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  placeholder="user@example.com"
+                  className="w-full px-3 py-2 rounded-xl bg-card border border-border text-foreground text-sm focus:outline-none focus:border-accent transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-muted mb-1.5 flex justify-between items-center">
+                  <span>Пароль</span>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, password: generatePassword() })}
+                    className="text-[10px] font-medium text-accent hover:underline cursor-pointer"
+                  >
+                    Сгенерировать
+                  </button>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  placeholder="Минимум 6 символов"
+                  className="w-full px-3 py-2 rounded-xl bg-card border border-border text-foreground text-sm focus:outline-none focus:border-accent transition-colors"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-muted mb-1.5">
+                    Роль
+                  </label>
+                  <select
+                    value={formData.role}
+                    onChange={(e) => setFormData({ ...formData, role: e.target.value as "admin" | "student" })}
+                    className="w-full px-3 py-2 rounded-xl bg-card border border-border text-foreground text-sm focus:outline-none focus:border-accent transition-colors"
+                  >
+                    <option value="student">Студент</option>
+                    <option value="admin">Администратор</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-muted mb-1.5">
+                    Одобрить сразу
+                  </label>
+                  <div className="flex items-center h-[38px]">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, isApproved: !formData.isApproved })}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        formData.isApproved ? 'bg-success' : 'bg-muted/50'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          formData.isApproved ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex justify-end gap-3 pt-4 border-t border-border mt-6">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddModalOpen(false);
+                    resetForm();
+                  }}
+                  className="px-4 py-2 border border-border hover:bg-card-hover rounded-xl text-sm font-medium text-foreground transition-colors cursor-pointer"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreating}
+                  className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Создать"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
