@@ -131,10 +131,14 @@ export default function AdminUsersPage() {
     e.preventDefault();
     setIsCreating(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
       const response = await fetch("/api/admin/users", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(formData),
       });

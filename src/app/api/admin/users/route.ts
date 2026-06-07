@@ -1,13 +1,30 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 
 export async function POST(request: Request) {
   console.log("=== API Route /api/admin/users POST called ===");
   try {
+    const authHeader = request.headers.get("Authorization");
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
+
     // 1. Authenticate the admin
     const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    let user = null;
+    let authError = null;
+
+    if (token) {
+      console.log("Authenticating using Bearer token from Authorization header...");
+      const { data, error } = await supabase.auth.getUser(token);
+      user = data.user;
+      authError = error;
+    } else {
+      console.log("No Bearer token found. Authenticating using cookies...");
+      const { data, error } = await supabase.auth.getUser();
+      user = data.user;
+      authError = error;
+    }
 
     if (authError || !user) {
       console.error("Auth check failed:", authError);
