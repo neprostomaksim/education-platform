@@ -3,14 +3,17 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
+  console.log("=== API Route /api/admin/users POST called ===");
   try {
     // 1. Authenticate the admin
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
     if (authError || !user) {
+      console.error("Auth check failed:", authError);
       return NextResponse.json({ error: "Неавторизован" }, { status: 401 });
     }
+    console.log("Authenticated caller:", user.email, "ID:", user.id);
 
     // 2. Check if the user is an admin
     const { data: profile, error: profileError } = await supabase
@@ -20,14 +23,18 @@ export async function POST(request: Request) {
       .single();
 
     if (profileError || profile?.role !== "admin") {
+      console.error("Caller is not admin or profile fetch failed:", profileError, "Role:", profile?.role);
       return NextResponse.json({ error: "Доступ запрещен" }, { status: 403 });
     }
+    console.log("Caller is confirmed admin!");
 
     // 3. Parse and validate the request body
     const body = await request.json();
     const { email, password, fullName, role, isApproved } = body;
+    console.log("Request body parameters:", { email, passwordLength: password?.length, fullName, role, isApproved });
 
     if (!email || !password || !fullName || !role) {
+      console.error("Validation failed: missing fields");
       return NextResponse.json(
         { error: "Не заполнены обязательные поля: email, password, fullName, role" },
         { status: 400 }
@@ -35,10 +42,12 @@ export async function POST(request: Request) {
     }
 
     if (role !== "admin" && role !== "student") {
+      console.error("Validation failed: invalid role", role);
       return NextResponse.json({ error: "Недопустимая роль" }, { status: 400 });
     }
 
     // 4. Create user in Supabase Auth using the Admin client
+    console.log("Creating user in Auth...");
     const adminClient = createAdminClient();
     const { data: authData, error: createUserError } = await adminClient.auth.admin.createUser({
       email,
@@ -50,6 +59,7 @@ export async function POST(request: Request) {
     });
 
     if (createUserError || !authData.user) {
+      console.error("Auth creation failed:", createUserError);
       return NextResponse.json(
         { error: createUserError?.message || "Не удалось создать пользователя" },
         { status: 500 }
@@ -57,8 +67,10 @@ export async function POST(request: Request) {
     }
 
     const newUserId = authData.user.id;
+    console.log("Auth user created successfully! New User ID:", newUserId);
 
     // 5. Update the public.profiles table (created by the DB trigger)
+    console.log("Updating profile in DB...");
     const { data: updatedProfile, error: updateError } = await adminClient
       .from("profiles")
       .update({
@@ -80,6 +92,7 @@ export async function POST(request: Request) {
       );
     }
 
+    console.log("Profile updated successfully:", updatedProfile);
     return NextResponse.json({
       success: true,
       user: updatedProfile
