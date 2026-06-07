@@ -270,16 +270,16 @@ export default function AdminUsersPage() {
                               const isToggling = processingId === `${user.id}-${course.id}`;
                               
                               return (
-                                <div key={course.id} className="flex items-center justify-between p-3 rounded-xl border border-border bg-card hover:border-accent/30 transition-colors">
-                                  <div className="flex items-center gap-3">
-                                    <div className={`w-2.5 h-2.5 rounded-full ${hasAccess ? 'bg-success glow-accent' : 'bg-muted/30'}`} />
-                                    <span className="text-sm font-medium text-foreground truncate max-w-[200px]" title={course.title}>
+                                <div key={course.id} className="flex items-center justify-between gap-4 p-3 rounded-xl border border-border bg-card hover:border-accent/30 transition-colors min-w-0">
+                                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${hasAccess ? 'bg-success glow-accent' : 'bg-muted/30'}`} />
+                                    <span className="text-sm font-medium text-foreground truncate" title={course.title}>
                                       {course.title}
                                     </span>
                                   </div>
                                   <div className="flex items-center gap-3 shrink-0">
                                     <span className={`text-xs font-medium ${hasAccess ? 'text-success' : 'text-muted'}`}>
-                                      {isToggling ? "Загрузка..." : (hasAccess ? "Доступ открыт" : "Доступ закрыт")}
+                                      {isToggling ? "Загрузка..." : (hasAccess ? "Открыт" : "Закрыт")}
                                     </span>
                                     <button
                                       onClick={() => toggleCourseAccess(user.id, course.id, hasAccess)}
