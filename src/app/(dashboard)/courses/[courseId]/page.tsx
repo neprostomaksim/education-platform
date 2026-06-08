@@ -211,10 +211,10 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
                             {iconMap[topic.icon] || <BookOpen className="w-6 h-6" />}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <h3 className="font-semibold text-foreground mb-1 truncate">
+                            <h3 className="font-semibold text-foreground mb-1 whitespace-normal">
                               {topic.title}
                             </h3>
-                            <p className="text-sm text-muted line-clamp-2">
+                            <p className="text-sm text-muted whitespace-normal">
                               {topic.description}
                             </p>
                           </div>

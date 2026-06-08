@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { ToastProvider } from "@/components/shared/toast-provider";
 import { UserProvider } from "@/hooks/use-user";
+import { PwaProvider } from "@/components/providers/pwa-provider";
 import "./globals.css";
 
 const inter = Inter({
@@ -21,6 +22,7 @@ export const metadata: Metadata = {
   },
   description:
     "Изучайте искусственный интеллект с нуля: промпт-инжиниринг, ИИ-агенты, визуальный контент и вайб-кодинг",
+  manifest: "/manifest.json",
   keywords: [
     "искусственный интеллект",
     "обучение",
@@ -51,7 +53,9 @@ export default function RootLayout({
         className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
         <UserProvider>
-          <ToastProvider>{children}</ToastProvider>
+          <ToastProvider>
+            <PwaProvider>{children}</PwaProvider>
+          </ToastProvider>
         </UserProvider>
       </body>
     </html>

@@ -62,8 +62,8 @@ export default function TopicsListPage() {
             <div key={topic.id} className="bg-card rounded-xl border border-border p-4 flex items-center gap-4 hover:border-border-hover transition-colors">
               <GripVertical className="w-4 h-4 text-muted shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-foreground truncate">{topic.title}</p>
-                <p className="text-xs text-muted truncate">{topic.description}</p>
+                <p className="font-medium text-foreground whitespace-normal">{topic.title}</p>
+                <p className="text-xs text-muted whitespace-normal">{topic.description}</p>
               </div>
               <div className="flex items-center gap-1">
                 <button onClick={() => togglePublish(topic.id, topic.is_published)} className={`p-2 rounded-lg transition-colors cursor-pointer ${topic.is_published ? 'text-success hover:bg-success/10' : 'text-muted hover:bg-card-hover'}`} title={topic.is_published ? 'Скрыть' : 'Опубликовать'}>

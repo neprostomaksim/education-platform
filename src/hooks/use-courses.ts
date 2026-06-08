@@ -10,6 +10,19 @@ export function useCourses(userId?: string) {
   const supabase = createClient();
 
   useEffect(() => {
+    // Load from cache first
+    if (typeof window !== "undefined") {
+      const cached = localStorage.getItem("lms-courses-cache");
+      if (cached) {
+        try {
+          setCourses(JSON.parse(cached));
+          setLoading(false);
+        } catch (e) {
+          console.error("Error reading lms-courses-cache:", e);
+        }
+      }
+    }
+
     const fetchCourses = async () => {
       try {
         console.log("Fetching courses...");
@@ -95,6 +108,11 @@ export function useCourses(userId?: string) {
         });
 
         setCourses(coursesWithTopics);
+        
+        // Save to cache
+        if (typeof window !== "undefined") {
+          localStorage.setItem("lms-courses-cache", JSON.stringify(coursesWithTopics));
+        }
       } catch (error: any) {
         console.error("Error fetching courses:", error.message, error);
       } finally {

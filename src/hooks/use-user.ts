@@ -40,16 +40,66 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
   const router = useRouter();
 
+  // Load from local cache first on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const cachedUser = localStorage.getItem("lms-user-cache");
+      const cachedProfile = localStorage.getItem("lms-profile-cache");
+      if (cachedUser && cachedProfile) {
+        try {
+          setUserState(JSON.parse(cachedUser));
+          setProfileState(JSON.parse(cachedProfile));
+          setLoading(false);
+          console.log("UserProvider: Initialized from local cache");
+        } catch (e) {
+          console.error("Error loading cached user/profile:", e);
+        }
+      }
+    }
+  }, []);
+
   useEffect(() => {
     let mounted = true;
 
     const loadUserAndProfile = async () => {
       console.log("UserProvider: Starting initial load...");
+      
+      // If offline on mount, rely purely on local cache
+      if (typeof window !== "undefined" && !navigator.onLine) {
+        console.log("UserProvider: Offline on mount, loading from cache...");
+        const cachedUser = localStorage.getItem("lms-user-cache");
+        const cachedProfile = localStorage.getItem("lms-profile-cache");
+        if (cachedUser && cachedProfile) {
+          try {
+            setUser(JSON.parse(cachedUser));
+            setProfile(JSON.parse(cachedProfile));
+          } catch (e) {
+            console.error("Error parsing user/profile cache", e);
+          }
+        }
+        if (mounted) setLoading(false);
+        return;
+      }
+
       try {
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
-          console.warn("UserProvider: Session error:", sessionError);
+          console.warn("UserProvider: Session error, trying cache fallback:", sessionError);
+          if (typeof window !== "undefined") {
+            const cachedUser = localStorage.getItem("lms-user-cache");
+            const cachedProfile = localStorage.getItem("lms-profile-cache");
+            if (cachedUser && cachedProfile) {
+              try {
+                setUser(JSON.parse(cachedUser));
+                setProfile(JSON.parse(cachedProfile));
+                if (mounted) setLoading(false);
+                return;
+              } catch (e) {
+                console.error(e);
+              }
+            }
+          }
           if (mounted) {
             setUser(null);
             setProfile(null);
@@ -66,6 +116,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
         if (currentUser) {
           console.log("UserProvider: Fetching profile for user:", currentUser.id);
+          
+          if (typeof window !== "undefined") {
+            localStorage.setItem("lms-user-cache", JSON.stringify(currentUser));
+          }
+
           const { data: profileData, error: profileError } = await supabase
             .from("profiles")
             .select("*")
@@ -73,9 +128,32 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             .single();
 
           if (profileError) {
-            console.warn("UserProvider: Profile query error:", profileError);
+            console.warn("UserProvider: Profile query error, trying cache fallback:", profileError);
+            if (typeof window !== "undefined") {
+              const cachedProfile = localStorage.getItem("lms-profile-cache");
+              if (cachedProfile) {
+                try {
+                  setProfile(JSON.parse(cachedProfile));
+                } catch (e) {
+                  console.error(e);
+                }
+              }
+            }
           } else if (mounted) {
             setProfile(profileData);
+            if (typeof window !== "undefined") {
+              localStorage.setItem("lms-profile-cache", JSON.stringify(profileData));
+            }
+          }
+        } else {
+          // Only remove cache if we are online and confirmed to have no session
+          if (typeof window !== "undefined" && navigator.onLine) {
+            localStorage.removeItem("lms-user-cache");
+            localStorage.removeItem("lms-profile-cache");
+            if (mounted) {
+              setUser(null);
+              setProfile(null);
+            }
           }
         }
       } catch (err) {
@@ -97,6 +175,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             setUser(null);
             setProfile(null);
             setLoading(false);
+            if (typeof window !== "undefined") {
+              localStorage.removeItem("lms-user-cache");
+              localStorage.removeItem("lms-profile-cache");
+            }
           }
           router.push("/login");
           return;
@@ -133,6 +215,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
                 console.warn("UserProvider: Deferred profile fetch error:", error);
               } else if (mounted) {
                 setProfile(profileData);
+                if (typeof window !== "undefined") {
+                  localStorage.setItem("lms-profile-cache", JSON.stringify(profileData));
+                }
               }
             } catch (err) {
               console.error("UserProvider: Deferred profile fetch critical error:", err);
@@ -150,6 +235,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     // forces Supabase to refresh the token if needed.
     const handleVisibilityChange = async () => {
       if (document.visibilityState !== "visible" || !mounted) return;
+
+      // If offline, do NOT re-validate session with the server
+      if (typeof window !== "undefined" && !navigator.onLine) {
+        console.log("UserProvider: Tab became visible but offline, skipping session re-validation");
+        return;
+      }
 
       console.log("UserProvider: Tab became visible, re-validating session...");
       try {
@@ -176,6 +267,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
               .single();
             if (!profileError && mounted) {
               setProfile(profileData);
+              if (typeof window !== "undefined") {
+                localStorage.setItem("lms-profile-cache", JSON.stringify(profileData));
+              }
             }
           } else if (mounted) {
             setUser(null);

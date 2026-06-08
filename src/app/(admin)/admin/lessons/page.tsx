@@ -65,8 +65,8 @@ export default function LessonsListPage() {
             <div key={lesson.id} className="bg-card rounded-xl border border-border p-4 flex items-center gap-4 hover:border-border-hover transition-colors">
               <FileText className="w-4 h-4 text-muted shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-foreground truncate">{lesson.title}</p>
-                <p className="text-xs text-muted truncate">{lesson.topic?.title || 'Без темы'}</p>
+                <p className="font-medium text-foreground whitespace-normal">{lesson.title}</p>
+                <p className="text-xs text-muted whitespace-normal">{lesson.topic?.title || 'Без темы'}</p>
               </div>
               <div className="flex items-center gap-1">
                 <button onClick={() => togglePublish(lesson.id, lesson.is_published)} className={`p-2 rounded-lg transition-colors cursor-pointer ${lesson.is_published ? 'text-success hover:bg-success/10' : 'text-muted hover:bg-card-hover'}`}>

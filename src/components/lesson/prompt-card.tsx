@@ -65,11 +65,11 @@ export function PromptCard({ data, onCopy }: PromptCardProps) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1.5">
             <Sparkles className="w-4 h-4 text-accent shrink-0" />
-            <h4 className="text-sm font-semibold text-foreground truncate">
+            <h4 className="text-sm font-semibold text-foreground whitespace-normal">
               {data.title}
             </h4>
           </div>
-          <p className="text-xs text-muted line-clamp-2">{data.description}</p>
+          <p className="text-xs text-muted whitespace-normal">{data.description}</p>
         </div>
         <span
           className={`shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-full border ${specialtyInfo.colorClass}`}

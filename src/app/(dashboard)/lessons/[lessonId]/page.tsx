@@ -48,6 +48,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
   const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [selectedSpecialty, setSelectedSpecialty] = useState<Specialty>("all");
+  const [activeImage, setActiveImage] = useState<string | null>(null);
   const { user, loading: userLoading } = useUser();
   const { markComplete, markIncomplete, loading: progressLoading } = useProgress(user?.id || "");
   const { addToast } = useToast();
@@ -86,47 +87,198 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
       return;
     }
 
+    const loadFromCache = () => {
+      if (typeof window === "undefined") return false;
+      
+      const cachedCoursesStr = localStorage.getItem("lms-courses-cache");
+      const completedIdsStr = localStorage.getItem("lms-progress-completed-ids") || "[]";
+      
+      if (!cachedCoursesStr) return false;
+      
+      try {
+        const cachedCourses = JSON.parse(cachedCoursesStr);
+        if (!Array.isArray(cachedCourses)) return false;
+        
+        let completedIds: string[] = [];
+        try {
+          completedIds = JSON.parse(completedIdsStr);
+          if (!Array.isArray(completedIds)) completedIds = [];
+        } catch (e) {
+          console.error("Error parsing lms-progress-completed-ids cache:", e);
+        }
+        const completedSet = new Set(completedIds);
+        
+        // Find the lesson first to identify the course
+        let foundLesson: LessonWithTopic | null = null;
+        let targetCourseId: string | null = null;
+        
+        for (const course of cachedCourses) {
+          if (!course.topics || !Array.isArray(course.topics)) continue;
+          
+          for (const topic of course.topics) {
+            const matchingLesson = (topic.lessons || []).find((l: any) => l.id === lessonId);
+            if (matchingLesson) {
+              foundLesson = {
+                ...matchingLesson,
+                topic: { ...topic },
+              };
+              targetCourseId = course.id;
+              break;
+            }
+          }
+          if (foundLesson) break;
+        }
+        
+        if (!foundLesson) {
+          return false;
+        }
+        
+        // Load only the topics from the current course
+        const allTopics: TopicWithLessons[] = [];
+        const targetCourse = cachedCourses.find((c: any) => c.id === targetCourseId);
+        if (targetCourse && Array.isArray(targetCourse.topics)) {
+          for (const topic of targetCourse.topics) {
+            const topicLessons = (topic.lessons || []).map((l: any) => ({
+              ...l,
+              completed: completedSet.has(l.id),
+            }));
+            
+            const topicWithLessons: TopicWithLessons = {
+              ...topic,
+              lessons: topicLessons,
+            };
+            
+            allTopics.push(topicWithLessons);
+          }
+        }
+        
+        // Order topics by sort_order
+        allTopics.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        
+        setLesson(foundLesson);
+        setTopics(allTopics);
+        setIsCompleted(completedSet.has(lessonId));
+        
+        // Expand current topic
+        const currentTopic = allTopics.find(t => 
+          t.lessons.some(l => l.id === lessonId)
+        );
+        if (currentTopic) {
+          setExpandedTopics(new Set([currentTopic.id]));
+        }
+        
+        console.log("[PWA] Successfully loaded lesson page data from local cache");
+        return true;
+      } catch (e) {
+        console.error("Error loading lesson page data from cache:", e);
+        return false;
+      }
+    };
+
     const fetchData = async () => {
       setLoading(true);
+      
+      // If offline, try cache first
+      if (typeof window !== "undefined" && !navigator.onLine) {
+        const success = loadFromCache();
+        if (success) {
+          setLoading(false);
+          return;
+        }
+      }
+      
       try {
         // Fetch current lesson with topic
-        const { data: lessonData } = await supabase
+        const { data: lessonData, error: lessonError } = await supabase
           .from("lessons")
           .select("*, topic:topics(*)")
           .eq("id", lessonId)
           .single();
 
-        if (!lessonData) {
+        if (lessonError || !lessonData) {
+          console.warn("Supabase failed to fetch lesson, checking cache...", lessonError);
+          const success = loadFromCache();
+          if (success) return;
+          
           router.push("/dashboard");
           return;
         }
 
+        const resolvedTopic = Array.isArray(lessonData.topic) ? lessonData.topic[0] : lessonData.topic;
+        const currentCourseId = resolvedTopic?.course_id;
+
         setLesson({
           ...lessonData,
-          topic: Array.isArray(lessonData.topic) ? lessonData.topic[0] : lessonData.topic,
+          topic: resolvedTopic,
         } as LessonWithTopic);
 
-        // Fetch all topics with lessons for sidebar
-        const { data: topicsData } = await supabase
+        // Fetch topics for current course
+        const topicsQuery = supabase
           .from("topics")
           .select("*")
           .eq("is_published", true)
           .order("sort_order");
 
-        const { data: lessonsData } = await supabase
-          .from("lessons")
-          .select("*")
-          .eq("is_published", true)
-          .order("sort_order");
+        if (currentCourseId) {
+          topicsQuery.eq("course_id", currentCourseId);
+        }
+
+        const { data: topicsData, error: topicsError } = await topicsQuery;
+
+        // Fetch lessons for the topics of current course
+        let lessonsData: any[] = [];
+        let lessonsError: any = null;
+
+        if (topicsData && topicsData.length > 0) {
+          const topicIds = topicsData.map((t: any) => t.id);
+          const { data, error } = await supabase
+            .from("lessons")
+            .select("*")
+            .eq("is_published", true)
+            .in("topic_id", topicIds)
+            .order("sort_order");
+          lessonsData = data || [];
+          lessonsError = error;
+        }
+
+        if (topicsError || lessonsError) {
+          console.warn("Supabase failed to fetch topics/lessons, checking cache...", topicsError || lessonsError);
+          const success = loadFromCache();
+          if (success) return;
+        }
 
         // Fetch progress
         let progressData: Progress[] = [];
         if (user?.id) {
-          const { data } = await supabase
+          const { data, error: progressError } = await supabase
             .from("progress")
             .select("*")
             .eq("user_id", user.id);
-          progressData = data || [];
+            
+          if (progressError) {
+            console.warn("Supabase failed to fetch progress, using cache for progress...", progressError);
+            const completedIdsStr = localStorage.getItem("lms-progress-completed-ids") || "[]";
+            try {
+              const cachedCompleted = JSON.parse(completedIdsStr);
+              if (Array.isArray(cachedCompleted)) {
+                progressData = cachedCompleted.map(id => ({
+                  user_id: user.id,
+                  lesson_id: id,
+                  completed: true,
+                  completed_at: new Date().toISOString(),
+                } as Progress));
+              }
+            } catch (e) {
+              console.error(e);
+            }
+          } else {
+            progressData = data || [];
+            // Cache the progress completed ids
+            if (typeof window !== "undefined") {
+              const completedIds = progressData.filter(p => p.completed).map(p => p.lesson_id);
+              localStorage.setItem("lms-progress-completed-ids", JSON.stringify(completedIds));
+            }
+          }
         }
 
         const completedIds = new Set(progressData.filter(p => p.completed).map(p => p.lesson_id));
@@ -149,6 +301,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
         }
       } catch (error) {
         console.error("Error fetching lesson data:", error);
+        loadFromCache();
       } finally {
         setLoading(false);
       }
@@ -254,8 +407,8 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
                   ) : (
                     <ChevronRight className="w-4 h-4 text-muted shrink-0" />
                   )}
-                  <span className="truncate">{topic.title}</span>
-                  <span className="ml-auto text-xs text-muted">
+                  <span className="flex-1 text-left whitespace-normal">{topic.title}</span>
+                  <span className="ml-2 text-xs text-muted shrink-0">
                     {topic.lessons.filter(l => l.completed).length}/{topic.lessons.length}
                   </span>
                 </button>
@@ -295,7 +448,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
                               ) : (
                                 <Circle className="w-4 h-4 shrink-0" />
                               )}
-                              <span className="truncate">{l.title}</span>
+                              <span className="flex-1 text-left whitespace-normal">{l.title}</span>
                             </Link>
                           ))}
                         </div>
@@ -373,6 +526,17 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
                 remarkPlugins={[remarkGfm]}
                 components={{
                   pre: CodeBlockWrapper,
+                  img: ({ src, alt }) => (
+                    <img
+                      src={src}
+                      alt={alt}
+                      onClick={() => {
+                        if (typeof src === "string") {
+                          setActiveImage(src);
+                        }
+                      }}
+                    />
+                  ),
                 }}
               >
                 {filteredContent}
@@ -436,6 +600,28 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
           </div>
         </div>
       </div>
+
+      {/* Image Lightbox Modal */}
+      {activeImage && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => setActiveImage(null)}
+        >
+          <button
+            onClick={() => setActiveImage(null)}
+            className="absolute top-6 right-6 text-white/70 hover:text-white bg-white/10 hover:bg-white/20 p-2.5 rounded-full transition-all duration-200 cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <div className="max-w-6xl max-h-[90vh] relative animate-scale-up">
+            <img
+              src={activeImage}
+              alt="Увеличенное изображение"
+              className="rounded-xl object-contain max-h-[85vh] max-w-full shadow-2xl"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -194,7 +194,28 @@ body {
 
 .prose-dark img {
   border-radius: 0.75rem;
-  margin: 1em 0;
+  margin: 1.5em 0;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  cursor: zoom-in;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.prose-dark img:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+@media (min-width: 1024px) {
+  .prose-dark img {
+    width: 140%;
+    max-width: 140%;
+    margin-left: -20%;
+    margin-right: -20%;
+  }
 }
 
 .prose-dark hr {
@@ -311,8 +332,6 @@ body {
   border: 1px solid #2A2A2E;
   border-radius: 0.75rem;
   padding: 0.875rem;
-  max-height: 180px;
-  overflow-y: auto;
 }
 
 .prompt-text {
