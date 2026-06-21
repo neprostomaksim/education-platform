@@ -124,6 +124,11 @@ export default function AdminLessonAccessPage() {
       const mappedStudents: ProfileWithAccess[] = courseStudents.map((student) => {
         const studentAccesses = accessData.filter((a) => a.user_id === student.id);
         const unlockedSet = new Set(studentAccesses.map((a) => a.lesson_id));
+        // First lesson is unlocked by default
+        const firstLesson = courseLessons.find((l) => l.sort_order === 1);
+        if (firstLesson) {
+          unlockedSet.add(firstLesson.id);
+        }
         return {
           ...student,
           unlockedLessons: unlockedSet,
@@ -198,8 +203,8 @@ export default function AdminLessonAccessPage() {
       }
     }
 
-    if (!lastUnlockedLesson) {
-      addToast("У студента нет открытых уроков", "info");
+    if (!lastUnlockedLesson || lastUnlockedLesson.sort_order === 1) {
+      addToast("Первый урок открыт по умолчанию и не может быть закрыт", "info");
       return;
     }
 

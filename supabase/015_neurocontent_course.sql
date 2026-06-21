@@ -159,6 +159,8 @@ CREATE POLICY "Students can view lessons with proper access"
                 WHERE t2.id = public.lessons.topic_id AND c.sequential_access = true
             )
             OR
+            public.lessons.sort_order = 1
+            OR
             EXISTS (
                 SELECT 1 FROM public.user_lesson_access ula
                 WHERE ula.user_id = auth.uid() AND ula.lesson_id = public.lessons.id

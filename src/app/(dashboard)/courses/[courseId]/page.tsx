@@ -219,7 +219,7 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {allLessons.map((lesson, idx) => {
-                const isUnlocked = accessibleLessons.has(lesson.id);
+                const isUnlocked = idx === 0 || accessibleLessons.has(lesson.id);
                 // Check if completed in course cache
                 const topicForLesson = course.topics.find(t => t.id === lesson.topic_id);
                 const lessonIdxInTopic = topicForLesson?.lessons.findIndex(l => l.id === lesson.id) ?? -1;
@@ -229,7 +229,7 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
                   <div className={`bg-card rounded-2xl border p-6 transition-all duration-300 relative overflow-hidden h-full flex flex-col justify-between ${
                     isUnlocked
                       ? "border-border hover:border-border-hover hover:bg-card-hover hover-lift cursor-pointer"
-                      : "border-border/50 opacity-60 cursor-not-allowed"
+                      : "border-border/50 opacity-90 cursor-not-allowed"
                   }`}>
                     {/* Background glow overlay for premium feel */}
                     {isUnlocked && (
@@ -239,45 +239,38 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
                     )}
 
                     <div className="relative z-10 flex-1">
-                      <div className="flex items-start gap-4 mb-5">
+                      <div className="flex items-center gap-4">
                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-110 ${
                           isCompleted
                             ? "bg-success/10 text-success"
                             : isUnlocked
                             ? "bg-accent/10 text-accent"
-                            : "bg-muted/10 text-muted"
+                            : "bg-success/10 text-success border border-success/20"
                         }`}>
                           {isCompleted ? (
                             <CheckCircle2 className="w-6 h-6" />
                           ) : isUnlocked ? (
                             <PlayCircle className="w-6 h-6" />
                           ) : (
-                            <Lock className="w-6 h-6" />
+                            <Lock className="w-6 h-6 text-success" />
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
                           <span className={`text-xs font-semibold uppercase tracking-wider mb-1 block ${
-                            isCompleted ? "text-success" : isUnlocked ? "text-accent" : "text-muted"
+                            isCompleted ? "text-success" : isUnlocked ? "text-accent" : "text-success"
                           }`}>
                             Урок {idx + 1}
                           </span>
-                          <h3 className="font-semibold text-foreground mb-1 whitespace-normal leading-snug">
+                          <h3 className="font-semibold text-foreground whitespace-normal leading-snug">
                             {lesson.title}
                           </h3>
-                          <p className="text-sm text-muted whitespace-normal line-clamp-3">
-                            {lesson.content || "Описание занятия"}
-                          </p>
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between mt-4 pt-4 border-t border-border/50 relative z-10">
-                      <div className="flex items-center gap-1.5 text-xs text-muted">
-                        <Clock className="w-3.5 h-3.5" />
-                        {lesson.duration_minutes || 90} мин
-                      </div>
+                    <div className="flex items-center justify-end mt-4 pt-4 border-t border-border/50 relative z-10">
                       <span className={`text-xs font-semibold ${
-                        isCompleted ? "text-success" : isUnlocked ? "text-accent" : "text-muted"
+                        isCompleted ? "text-success" : isUnlocked ? "text-accent" : "text-success"
                       }`}>
                         {isCompleted ? "Пройден" : isUnlocked ? "Доступен" : "Заблокирован"}
                       </span>

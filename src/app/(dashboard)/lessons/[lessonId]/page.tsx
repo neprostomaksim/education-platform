@@ -288,7 +288,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
           .eq("id", currentCourseId)
           .single();
 
-        if (!cErr && courseData?.sequential_access) {
+        if (!cErr && courseData?.sequential_access && lessonData.sort_order !== 1) {
           const { data: accessData, error: accessErr } = await supabase
             .from("user_lesson_access")
             .select("id")

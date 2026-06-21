@@ -140,10 +140,11 @@ export default function DashboardPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {courses.map((course) => {
-            const progress = calculateProgress(
-              course.completedTopics,
-              course.totalTopics
-            );
+            const totalLessons = course.topics.flatMap((t) => t.lessons).length;
+            const completedLessons = course.topics.reduce((sum, t) => sum + t.completedLessons, 0);
+            const progress = course.sequential_access
+              ? calculateProgress(completedLessons, totalLessons)
+              : calculateProgress(course.completedTopics, course.totalTopics);
 
             return (
               <Link
@@ -183,7 +184,11 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between relative z-10">
                     <div className="flex items-center gap-1.5 text-xs text-muted">
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      {course.completedTopics} / {course.totalTopics} модулей
+                      {course.sequential_access ? (
+                        `${completedLessons} / ${totalLessons} уроков`
+                      ) : (
+                        `${course.completedTopics} / ${course.totalTopics} модулей`
+                      )}
                     </div>
                     <span className="text-xs font-medium text-accent">
                       {progress}%

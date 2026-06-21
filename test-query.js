@@ -9,13 +9,16 @@ const env = fs.readFileSync('.env.local', 'utf-8').split('\n').reduce((acc, line
 
 const supabase = createClient(
   env.NEXT_PUBLIC_SUPABASE_URL,
-  env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  env.SUPABASE_SERVICE_ROLE_KEY
 );
 
 async function testQuery() {
-  console.log("Fetching courses with anon key...");
-  const { data, error } = await supabase.from('courses').select('*');
-  console.log("Courses:", data, "Error:", error);
+  console.log("Checking courses table using service role key...");
+  const { data, error } = await supabase.from('courses').select('id, title, sequential_access');
+  console.log("Courses:", data);
+  if (error) {
+    console.error("Error fetching courses:", error);
+  }
   process.exit(0);
 }
 
