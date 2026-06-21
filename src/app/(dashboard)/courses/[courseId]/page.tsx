@@ -60,11 +60,40 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
 
   const course = courses.find((c) => c.id === courseId);
 
+  // All Hooks must be declared at the top level
+  const [accessibleLessons, setAccessibleLessons] = useState<Set<string>>(new Set());
+  const [accessLoading, setAccessLoading] = useState(false);
+
   useEffect(() => {
     if (!loading && !course) {
       router.push("/dashboard");
     }
   }, [loading, course, router]);
+
+  useEffect(() => {
+    if (course?.sequential_access && user?.id) {
+      setAccessLoading(true);
+      const fetchAccess = async () => {
+        try {
+          const { data, error } = await supabase
+            .from("user_lesson_access")
+            .select("lesson_id")
+            .eq("user_id", user.id);
+
+          if (error) throw error;
+          const ids = (data || []).map((r: any) => r.lesson_id);
+          setAccessibleLessons(new Set(ids));
+        } catch (err) {
+          console.error("Error loading lesson access:", err);
+        } finally {
+          setAccessLoading(false);
+        }
+      };
+      fetchAccess();
+    } else {
+      setAccessLoading(false);
+    }
+  }, [course?.sequential_access, user?.id, supabase]);
 
   if (loading) {
     return (
@@ -87,32 +116,6 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
 
   const progress = calculateProgress(course.completedTopics, course.totalTopics);
   
-  // Fetch lesson access for sequential courses
-  const [accessibleLessons, setAccessibleLessons] = useState<Set<string>>(new Set());
-  const [accessLoading, setAccessLoading] = useState(course.sequential_access);
-
-  useEffect(() => {
-    if (course.sequential_access && user?.id) {
-      const fetchAccess = async () => {
-        try {
-          const { data, error } = await supabase
-            .from("user_lesson_access")
-            .select("lesson_id")
-            .eq("user_id", user.id);
-
-          if (error) throw error;
-          const ids = (data || []).map((r: any) => r.lesson_id);
-          setAccessibleLessons(new Set(ids));
-        } catch (err) {
-          console.error("Error loading lesson access:", err);
-        } finally {
-          setAccessLoading(false);
-        }
-      };
-      fetchAccess();
-    }
-  }, [course.sequential_access, user?.id, supabase]);
-
   // Find first uncompleted lesson across all topics
   const nextLesson = course.topics
     .flatMap((t) =>
