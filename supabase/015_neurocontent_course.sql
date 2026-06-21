@@ -24,9 +24,11 @@ CREATE INDEX IF NOT EXISTS idx_user_lesson_access_lesson_id ON public.user_lesso
 -- RLS for user_lesson_access
 ALTER TABLE public.user_lesson_access ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Admins can do everything on user_lesson_access" ON public.user_lesson_access;
 CREATE POLICY "Admins can do everything on user_lesson_access"
     ON public.user_lesson_access FOR ALL USING (public.is_admin());
 
+DROP POLICY IF EXISTS "Students can view their own lesson accesses" ON public.user_lesson_access;
 CREATE POLICY "Students can view their own lesson accesses"
     ON public.user_lesson_access FOR SELECT
     USING (user_id = auth.uid());
