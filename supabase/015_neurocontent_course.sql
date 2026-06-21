@@ -42,7 +42,12 @@ VALUES (
     'from-pink-500 to-violet-500',
     true,
     true
-) ON CONFLICT (id) DO NOTHING;
+) ON CONFLICT (id) DO UPDATE SET 
+    title = EXCLUDED.title,
+    description = EXCLUDED.description,
+    gradient = EXCLUDED.gradient,
+    is_published = EXCLUDED.is_published,
+    sequential_access = EXCLUDED.sequential_access;
 
 -- 4. Create a single topic for the course (used as a container for the 8 lessons)
 INSERT INTO public.topics (id, course_id, title, description, icon, gradient, sort_order, is_published)
@@ -55,7 +60,13 @@ VALUES (
     'from-pink-500 to-violet-500',
     1,
     true
-) ON CONFLICT (id) DO NOTHING;
+) ON CONFLICT (id) DO UPDATE SET
+    title = EXCLUDED.title,
+    description = EXCLUDED.description,
+    icon = EXCLUDED.icon,
+    gradient = EXCLUDED.gradient,
+    sort_order = EXCLUDED.sort_order,
+    is_published = EXCLUDED.is_published;
 
 -- 5. Create 8 lessons
 INSERT INTO public.lessons (id, topic_id, title, content, sort_order, duration_minutes, is_published, block_name) VALUES
@@ -108,7 +119,13 @@ INSERT INTO public.lessons (id, topic_id, title, content, sort_order, duration_m
  'Превращение просмотров в заявки',
  NULL, 8, 90, true, NULL)
 
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET
+    title = EXCLUDED.title,
+    content = EXCLUDED.content,
+    sort_order = EXCLUDED.sort_order,
+    duration_minutes = EXCLUDED.duration_minutes,
+    is_published = EXCLUDED.is_published,
+    block_name = EXCLUDED.block_name;
 
 -- 6. Update RLS on lessons to also check user_lesson_access for sequential courses
 -- Drop the existing student SELECT policy for lessons and recreate it
