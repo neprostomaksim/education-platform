@@ -18,6 +18,7 @@ export interface Course {
   image_url: string | null;
   gradient: string;
   is_published: boolean;
+  sequential_access: boolean;
   created_at: string;
 }
 
@@ -25,6 +26,14 @@ export interface UserCourse {
   id: string;
   user_id: string;
   course_id: string;
+  granted_by: string | null;
+  created_at: string;
+}
+
+export interface UserLessonAccess {
+  id: string;
+  user_id: string;
+  lesson_id: string;
   granted_by: string | null;
   created_at: string;
 }

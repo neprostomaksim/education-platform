@@ -281,6 +281,28 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
           }
         }
 
+        // Fetch lesson access for verification if it is a sequential access course
+        const { data: courseData, error: cErr } = await supabase
+          .from("courses")
+          .select("sequential_access")
+          .eq("id", currentCourseId)
+          .single();
+
+        if (!cErr && courseData?.sequential_access) {
+          const { data: accessData, error: accessErr } = await supabase
+            .from("user_lesson_access")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("lesson_id", lessonId)
+            .maybeSingle();
+
+          if (accessErr || !accessData) {
+            console.warn("User does not have access to this lesson");
+            router.push("/dashboard");
+            return;
+          }
+        }
+
         const completedIds = new Set(progressData.filter(p => p.completed).map(p => p.lesson_id));
         setIsCompleted(completedIds.has(lessonId));
         const topicsWithLessons: TopicWithLessons[] = (topicsData || []).map((topic: any) => ({
