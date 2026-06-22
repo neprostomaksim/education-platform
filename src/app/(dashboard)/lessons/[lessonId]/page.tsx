@@ -26,6 +26,7 @@ import {
   BookOpen,
   Loader2,
   Play,
+  ImagePlus,
 } from "lucide-react";
 
 interface LessonWithTopic extends Lesson {
@@ -46,6 +47,9 @@ const slugify = (text: string) =>
     .trim()
     .replace(/[^\p{L}\p{N}]+/gu, "-")
     .replace(/^-+|-+$/g, "");
+
+// Escape a string for safe use inside a RegExp
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Extract plain text from React markdown children (for heading ids)
 const nodeToText = (node: React.ReactNode): string => {
@@ -68,8 +72,11 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
   const [sequentialAccess, setSequentialAccess] = useState(false);
   const [activeBlock, setActiveBlock] = useState(0);
   const [selectedSpecialty, setSelectedSpecialty] = useState<Specialty>("all");
+  const [uploadTargetPlaceholder, setUploadTargetPlaceholder] = useState<string | null>(null);
+  const [screenshotUploading, setScreenshotUploading] = useState(false);
   const contentScrollRef = useRef<HTMLDivElement>(null);
   const blockInitedRef = useRef(false);
+  const screenshotInputRef = useRef<HTMLInputElement>(null);
   const [activeImage, setActiveImage] = useState<string | null>(null);
   const { user, profile, loading: userLoading } = useUser();
   const { markComplete, markIncomplete, loading: progressLoading } = useProgress(user?.id || "");
@@ -163,6 +170,58 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
       document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
     setSidebarOpen(false);
+  };
+
+  const isAdmin = profile?.role === "admin";
+
+  // Persist edited lesson content (admin-only inline editing of screenshots)
+  const persistContent = async (newContent: string) => {
+    if (!lesson) return;
+    setLesson({ ...lesson, content: newContent });
+    const { error } = await supabase.from("lessons").update({ content: newContent }).eq("id", lesson.id);
+    if (error) addToast("Не удалось сохранить изменения урока", "error");
+  };
+
+  const handleScreenshotPick = (placeholder: string) => {
+    setUploadTargetPlaceholder(placeholder);
+    screenshotInputRef.current?.click();
+  };
+
+  const handleScreenshotChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    const placeholder = uploadTargetPlaceholder;
+    if (!file || !placeholder || !lesson?.content) return;
+
+    setScreenshotUploading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/admin/upload", {
+        method: "POST",
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : undefined,
+        body: fd,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Ошибка загрузки");
+
+      // Replace the [СКРИН: ...] placeholder (optionally wrapped in backticks) with the image
+      const re = new RegExp("`?" + escapeRegex(placeholder) + "`?");
+      await persistContent(lesson.content.replace(re, `![Скриншот|100](${json.url})`));
+      addToast("Скриншот добавлен", "success");
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : "Ошибка загрузки", "error");
+    } finally {
+      setScreenshotUploading(false);
+      setUploadTargetPlaceholder(null);
+    }
+  };
+
+  const setImageWidth = async (url: string, width: number) => {
+    if (!lesson?.content) return;
+    const re = new RegExp("!\\[[^\\]]*\\]\\(" + escapeRegex(url) + "\\)");
+    await persistContent(lesson.content.replace(re, `![Скриншот|${width}](${url})`));
   };
 
   useEffect(() => {
@@ -685,17 +744,80 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
                       {children}
                     </h2>
                   ),
-                  img: ({ src, alt }) => (
-                    <img
-                      src={src}
-                      alt={alt}
-                      onClick={() => {
-                        if (typeof src === "string") {
-                          setActiveImage(src);
-                        }
-                      }}
-                    />
-                  ),
+                  p: ({ children }) => {
+                    const text = nodeToText(children).trim();
+                    const placeholders = text.match(/\[СКРИН:[^\]]*\]/g);
+                    const residue = text.replace(/\[СКРИН:[^\]]*\]/g, "").trim();
+                    // A paragraph made up solely of [СКРИН: ...] placeholder(s)
+                    if (placeholders && residue === "") {
+                      // Hide raw placeholders from students
+                      if (!isAdmin) return null;
+                      return (
+                        <span className="my-5 flex flex-col gap-2">
+                          {placeholders.map((ph, i) => {
+                            const uploading = screenshotUploading && uploadTargetPlaceholder === ph;
+                            const desc = ph.replace(/^\[СКРИН:\s*/, "").replace(/\]$/, "");
+                            return (
+                              <span
+                                key={`${ph}-${i}`}
+                                onClick={() => !uploading && handleScreenshotPick(ph)}
+                                className="flex flex-col items-center justify-center gap-1.5 p-6 rounded-2xl border-2 border-dashed border-border hover:border-accent/60 bg-card/40 hover:bg-card/60 text-center cursor-pointer transition-all"
+                              >
+                                {uploading ? (
+                                  <Loader2 className="w-5 h-5 animate-spin text-accent" />
+                                ) : (
+                                  <ImagePlus className="w-5 h-5 text-accent" />
+                                )}
+                                <span className="text-sm font-medium text-foreground">
+                                  {uploading ? "Загрузка…" : "Добавить скриншот"}
+                                </span>
+                                {desc && <span className="text-xs text-muted">{desc}</span>}
+                              </span>
+                            );
+                          })}
+                        </span>
+                      );
+                    }
+                    return <p>{children}</p>;
+                  },
+                  img: ({ src, alt }) => {
+                    const altStr = typeof alt === "string" ? alt : "";
+                    const m = altStr.match(/\|(\d+)\s*$/);
+                    const width = m ? Math.min(100, Math.max(10, parseInt(m[1], 10))) : 100;
+                    const label = altStr.replace(/\|\d+\s*$/, "").trim() || "Скриншот";
+                    return (
+                      <span className="block my-4">
+                        <img
+                          src={src}
+                          alt={label}
+                          style={{ width: `${width}%` }}
+                          onClick={() => {
+                            if (typeof src === "string") setActiveImage(src);
+                          }}
+                          className="rounded-xl cursor-zoom-in"
+                        />
+                        {isAdmin && typeof src === "string" && (
+                          <span className="mt-2 flex items-center gap-1.5 text-xs text-muted">
+                            <span>Размер:</span>
+                            {[25, 50, 75, 100].map((w) => (
+                              <button
+                                key={w}
+                                type="button"
+                                onClick={() => setImageWidth(src, w)}
+                                className={`px-2 py-0.5 rounded-md border transition-colors cursor-pointer ${
+                                  width === w
+                                    ? "border-accent text-accent bg-accent/10"
+                                    : "border-border hover:text-foreground"
+                                }`}
+                              >
+                                {w}%
+                              </button>
+                            ))}
+                          </span>
+                        )}
+                      </span>
+                    );
+                  },
                 }}
               >
                 {displayContent}
@@ -808,6 +930,15 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
           )}
         </div>
       </div>
+
+      {/* Hidden input for inline admin screenshot upload */}
+      <input
+        ref={screenshotInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="hidden"
+        onChange={handleScreenshotChange}
+      />
 
       {/* Image Lightbox Modal */}
       {activeImage && (
