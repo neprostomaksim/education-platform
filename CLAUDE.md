@@ -34,7 +34,7 @@ This is a Russian-language AI learning platform ("AI Learning"). The UI language
 - `(auth)` — `/login`, `/register`, `/callback` — Supabase OAuth callback handler
 - `(dashboard)` — `/dashboard`, `/courses/[courseId]`, `/lessons/[lessonId]`, `/prompts` — requires authenticated + approved user
 - `(admin)` — legacy admin shell (separate from the dashboard admin routes below)
-- `/admin/users`, `/admin/courses` — admin-only pages inside `(dashboard)` group
+- `/admin/users`, `/admin/courses`, `/admin/lesson-access` — admin-only pages inside `(dashboard)` group
 - `/pending` — shown to authenticated but unapproved users
 
 ### Middleware
@@ -55,20 +55,26 @@ All pages are client components (`"use client"`). Data is fetched via custom hoo
 
 - `useCourses(userId)` — fetches courses → topics → lessons → progress. RLS on `courses` table filters by `user_courses` join (admins see all). Results cached in `localStorage` as `lms-courses-cache`.
 - `useProgress(userId)` — manages lesson completion. Completed IDs cached as `lms-progress-completed-ids`.
+- `useTopics(userId)` — fetches published topics + lessons with progress for the lessons grid (independent of the per-course hierarchy).
+- `useLessonAccess(userId)` — reads `user_lesson_access` to determine which lessons a student may open. Cached as `lms-lesson-access-cache`.
 - Lesson page (`/lessons/[lessonId]`) implements its own fetch + cache fallback for offline support.
+
+Lesson gating: courses carry a `sequential_access` flag — when set, a lesson unlocks only after the previous one is completed (the first lesson is unlocked by default). Explicit per-lesson grants live in `user_lesson_access` and are managed from `/admin/lesson-access`. Locked lessons render a green lock in the UI.
 
 The platform is PWA-enabled (`public/sw.js`, `public/manifest.json`, `src/components/providers/pwa-provider.tsx`).
 
 ### Database Schema (Supabase)
 
-Key tables: `profiles`, `courses`, `topics`, `lessons`, `progress`, `user_courses`
+Key tables: `profiles`, `courses`, `topics`, `lessons`, `progress`, `user_courses`, `user_lesson_access`
 
 - `profiles` — auto-created by trigger on `auth.users`. Fields: `id`, `full_name`, `email`, `role`, `is_approved`.
+- `courses` — has a `sequential_access` flag controlling lesson gating (see Data Fetching above).
 - `user_courses` — grants a student access to a course. RLS on `courses` reads through this table.
+- `user_lesson_access` — explicit per-lesson grants `(user_id, lesson_id)` used by `useLessonAccess`.
 - `topics` → `lessons` form the course hierarchy. Both have `sort_order`, `is_published`, `block_name` (used to group lessons in the sidebar).
 - `progress` — one row per `(user_id, lesson_id)` with `completed` boolean.
 
-SQL migrations are in `supabase/` (numbered `002_` → `013_`).
+SQL migrations are in `supabase/` (`001_initial_schema.sql` in `supabase/migrations/`, then numbered `002_` → `015_` at the `supabase/` root, plus `seed.sql`). Several are written to be idempotent and re-runnable.
 
 ### Admin API
 

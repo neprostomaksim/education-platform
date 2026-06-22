@@ -52,7 +52,8 @@ function TopicCardSkeleton() {
 
 export default function CoursePage({ params }: { params: Promise<{ courseId: string }> }) {
   const { courseId } = use(params);
-  const { user } = useUser();
+  const { user, profile } = useUser();
+  const isAdmin = profile?.role === "admin";
   const { courses, loading } = useCourses(user?.id);
   const router = useRouter();
   const supabase = createClient();
@@ -126,7 +127,7 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
       }))
     )
     .find((l) => {
-      if (course.sequential_access) {
+      if (course.sequential_access && !isAdmin) {
         return accessibleLessons.has(l.id) && !l.isCompleted;
       }
       return !l.isCompleted;
@@ -178,7 +179,7 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
       </div>
 
       {/* Continue Banner */}
-      {nextLesson && (!course.sequential_access || accessibleLessons.has(nextLesson.id)) && (
+      {nextLesson && (!course.sequential_access || isAdmin || accessibleLessons.has(nextLesson.id)) && (
         <Link
           href={`/lessons/${nextLesson.id}`}
           className="block mb-8 group"
@@ -219,7 +220,7 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {allLessons.map((lesson, idx) => {
-                const isUnlocked = idx === 0 || accessibleLessons.has(lesson.id);
+                const isUnlocked = idx === 0 || isAdmin || accessibleLessons.has(lesson.id);
                 // Check if completed in course cache
                 const topicForLesson = course.topics.find(t => t.id === lesson.topic_id);
                 const lessonIdxInTopic = topicForLesson?.lessons.findIndex(l => l.id === lesson.id) ?? -1;

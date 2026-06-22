@@ -14,6 +14,8 @@ import {
   Shield,
   GraduationCap,
   Sparkles,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 export default function DashboardShell({
@@ -23,9 +25,27 @@ export default function DashboardShell({
 }) {
   const { user, profile, loading } = useUser();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const supabase = createClient();
+
+  // Restore collapsed state from previous session (desktop only)
+  useEffect(() => {
+    if (typeof window !== "undefined" && localStorage.getItem("lms-sidebar-collapsed") === "true") {
+      setCollapsed(true);
+    }
+  }, []);
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("lms-sidebar-collapsed", String(next));
+      }
+      return next;
+    });
+  };
 
   // Redirect to pending if not approved
   useEffect(() => {
@@ -50,6 +70,12 @@ export default function DashboardShell({
       </div>
     );
   }
+
+  // Helper: nav link label is hidden on desktop when collapsed (always visible on mobile drawer)
+  const labelClass = collapsed ? "lg:hidden" : "";
+  const linkClass = `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+    collapsed ? "lg:justify-center lg:px-0" : ""
+  }`;
 
   return (
     <div className="min-h-screen bg-background">
@@ -79,18 +105,24 @@ export default function DashboardShell({
 
       {/* Sidebar */}
       <aside
-        className={`fixed top-0 left-0 z-50 h-full w-64 bg-sidebar border-r border-border transform transition-transform duration-300 ease-in-out lg:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
+        className={`fixed top-0 left-0 z-50 h-full w-64 bg-sidebar border-r border-border transform transition-all duration-300 ease-in-out lg:translate-x-0 ${
+          collapsed ? "lg:w-20" : "lg:w-64"
+        } ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
       >
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="p-6 border-b border-border">
-            <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-xl bg-accent/10 flex items-center justify-center">
+          <div
+            className={`p-6 border-b border-border flex items-center ${
+              collapsed ? "lg:px-2 lg:justify-center" : ""
+            }`}
+          >
+            <div className="flex items-center gap-2 overflow-hidden">
+              <div className="w-9 h-9 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
                 <GraduationCap className="w-5 h-5 text-accent" />
               </div>
-              <span className="text-lg font-bold text-foreground">AI Learning</span>
+              <span className={`text-lg font-bold text-foreground whitespace-nowrap ${labelClass}`}>
+                AI Learning
+              </span>
             </div>
           </div>
 
@@ -98,54 +130,74 @@ export default function DashboardShell({
           <nav className="flex-1 p-4 space-y-1">
             <Link
               href="/dashboard"
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+              title={collapsed ? "Дашборд" : undefined}
+              className={`${linkClass} ${
                 pathname === "/dashboard" || pathname?.startsWith("/courses")
                   ? "bg-accent/10 text-accent"
                   : "text-muted hover:text-foreground hover:bg-sidebar-hover"
               }`}
               onClick={() => setSidebarOpen(false)}
             >
-              <LayoutDashboard className="w-4 h-4" />
-              Дашборд
+              <LayoutDashboard className="w-4 h-4 shrink-0" />
+              <span className={labelClass}>Дашборд</span>
             </Link>
 
             {profile?.role === "admin" && (
               <Link
                 href="/admin/users"
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                title={collapsed ? "Админ-панель" : undefined}
+                className={`${linkClass} ${
                   pathname?.startsWith("/admin")
                     ? "bg-accent/10 text-accent"
                     : "text-muted hover:text-foreground hover:bg-sidebar-hover"
                 }`}
                 onClick={() => setSidebarOpen(false)}
               >
-                <Shield className="w-4 h-4" />
-                Админ-панель
+                <Shield className="w-4 h-4 shrink-0" />
+                <span className={labelClass}>Админ-панель</span>
               </Link>
             )}
 
             <Link
               href="/prompts"
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+              title={collapsed ? "Библиотека промптов" : undefined}
+              className={`${linkClass} ${
                 pathname?.startsWith("/prompts")
                   ? "bg-accent/10 text-accent"
                   : "text-muted hover:text-foreground hover:bg-sidebar-hover"
               }`}
               onClick={() => setSidebarOpen(false)}
             >
-              <Sparkles className="w-4 h-4" />
-              Библиотека промптов
+              <Sparkles className="w-4 h-4 shrink-0" />
+              <span className={labelClass}>Библиотека промптов</span>
             </Link>
-
           </nav>
+
+          {/* Collapse toggle (desktop only) */}
+          <div className="hidden lg:block px-4 pb-2">
+            <button
+              onClick={toggleCollapsed}
+              title={collapsed ? "Развернуть меню" : "Свернуть меню"}
+              className={`flex items-center gap-3 w-full px-3 py-2 rounded-xl text-sm font-medium text-muted hover:text-foreground hover:bg-sidebar-hover transition-colors cursor-pointer ${
+                collapsed ? "lg:justify-center lg:px-0" : ""
+              }`}
+            >
+              {collapsed ? (
+                <ChevronRight className="w-4 h-4 shrink-0" />
+              ) : (
+                <ChevronLeft className="w-4 h-4 shrink-0" />
+              )}
+              <span className={labelClass}>Свернуть</span>
+            </button>
+          </div>
 
           {/* User section */}
           <div className="p-4 border-t border-border">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-9 h-9 rounded-full bg-accent/10 flex items-center justify-center text-accent text-sm font-semibold">
+            <div className={`flex items-center gap-3 mb-3 ${collapsed ? "lg:justify-center" : ""}`}>
+              <div className="w-9 h-9 rounded-full bg-accent/10 flex items-center justify-center text-accent text-sm font-semibold shrink-0">
                 {getInitials(profile?.full_name || user?.email || "U")}
               </div>
-              <div className="flex-1 min-w-0">
+              <div className={`flex-1 min-w-0 ${labelClass}`}>
                 <p className="text-sm font-medium text-foreground truncate">
                   {profile?.full_name || "Пользователь"}
                 </p>
@@ -156,17 +208,24 @@ export default function DashboardShell({
             </div>
             <button
               onClick={handleLogout}
-              className="flex items-center gap-2 w-full px-3 py-2 rounded-xl text-sm text-muted hover:text-error hover:bg-error/10 transition-colors cursor-pointer"
+              title={collapsed ? "Выйти" : undefined}
+              className={`flex items-center gap-2 w-full px-3 py-2 rounded-xl text-sm text-muted hover:text-error hover:bg-error/10 transition-colors cursor-pointer ${
+                collapsed ? "lg:justify-center lg:px-0" : ""
+              }`}
             >
-              <LogOut className="w-4 h-4" />
-              Выйти
+              <LogOut className="w-4 h-4 shrink-0" />
+              <span className={labelClass}>Выйти</span>
             </button>
           </div>
         </div>
       </aside>
 
       {/* Main content */}
-      <main className="lg:pl-64 pt-16 lg:pt-0 min-h-screen">
+      <main
+        className={`pt-16 lg:pt-0 min-h-screen transition-all duration-300 ${
+          collapsed ? "lg:pl-20" : "lg:pl-64"
+        }`}
+      >
         {children}
       </main>
     </div>

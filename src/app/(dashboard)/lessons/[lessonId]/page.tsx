@@ -49,7 +49,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
   const [loading, setLoading] = useState(true);
   const [selectedSpecialty, setSelectedSpecialty] = useState<Specialty>("all");
   const [activeImage, setActiveImage] = useState<string | null>(null);
-  const { user, loading: userLoading } = useUser();
+  const { user, profile, loading: userLoading } = useUser();
   const { markComplete, markIncomplete, loading: progressLoading } = useProgress(user?.id || "");
   const { addToast } = useToast();
   const router = useRouter();
@@ -288,7 +288,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
           .eq("id", currentCourseId)
           .single();
 
-        if (!cErr && courseData?.sequential_access && lessonData.sort_order !== 1) {
+        if (!cErr && courseData?.sequential_access && lessonData.sort_order !== 1 && profile?.role !== "admin") {
           const { data: accessData, error: accessErr } = await supabase
             .from("user_lesson_access")
             .select("id")
@@ -330,7 +330,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
     };
 
     fetchData();
-  }, [lessonId, user?.id, userLoading]);
+  }, [lessonId, user?.id, userLoading, profile?.role]);
 
   const handleToggleComplete = async () => {
     if (isCompleted) {
