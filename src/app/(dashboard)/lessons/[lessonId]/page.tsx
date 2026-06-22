@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use, useMemo } from "react";
+import { useEffect, useState, use, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
@@ -66,7 +66,10 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
   const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [sequentialAccess, setSequentialAccess] = useState(false);
+  const [activeBlock, setActiveBlock] = useState(0);
   const [selectedSpecialty, setSelectedSpecialty] = useState<Specialty>("all");
+  const contentScrollRef = useRef<HTMLDivElement>(null);
+  const blockInitedRef = useRef(false);
   const [activeImage, setActiveImage] = useState<string | null>(null);
   const { user, profile, loading: userLoading } = useUser();
   const { markComplete, markIncomplete, loading: progressLoading } = useProgress(user?.id || "");
@@ -95,28 +98,70 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
     return trimmed.replace(/^#\s+[^\r\n]+(\r?\n)*/, "");
   }, [lesson?.content, selectedSpecialty, hasSpecialtyContent]);
 
-  // Build in-lesson table of contents from H2 headings (skipping code fences)
-  const toc = useMemo(() => {
-    if (!filteredContent) return [] as { id: string; text: string }[];
-    const items: { id: string; text: string }[] = [];
+  // Split lesson markdown into blocks by H2 headings (skipping code fences).
+  // Each block becomes its own sub-page for sequential courses.
+  const blocks = useMemo(() => {
+    if (!filteredContent) return [] as { id: string; title: string; content: string }[];
+    const result: { id: string; title: string; content: string }[] = [];
     let inCode = false;
+    const preamble: string[] = [];
+    let current: { id: string; title: string; lines: string[] } | null = null;
     for (const line of filteredContent.split("\n")) {
-      if (line.trim().startsWith("```")) {
-        inCode = !inCode;
-        continue;
-      }
-      if (inCode) continue;
-      const m = /^##\s+(.+?)\s*$/.exec(line);
+      const isFence = line.trim().startsWith("```");
+      if (isFence) inCode = !inCode;
+      const m = !inCode && !isFence ? /^##\s+(.+?)\s*$/.exec(line) : null;
       if (m) {
-        const text = m[1].replace(/[*_`]/g, "").trim();
-        items.push({ id: slugify(text), text });
+        if (current) result.push({ id: current.id, title: current.title, content: current.lines.join("\n") });
+        const title = m[1].replace(/[*_`]/g, "").trim();
+        current = { id: slugify(title), title, lines: [line] };
+      } else if (current) {
+        current.lines.push(line);
+      } else {
+        preamble.push(line);
       }
     }
-    return items;
+    if (current) result.push({ id: current.id, title: current.title, content: current.lines.join("\n") });
+    if (result.length > 0 && preamble.join("\n").trim()) {
+      result[0] = { ...result[0], content: `${preamble.join("\n")}\n${result[0].content}` };
+    }
+    return result;
   }, [filteredContent]);
 
-  const scrollToSection = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const toc = useMemo(() => blocks.map((b) => ({ id: b.id, text: b.title })), [blocks]);
+
+  // Paginate (one block per sub-page) for sequential courses with multiple blocks
+  const paginated = sequentialAccess && blocks.length > 1;
+  const safeBlock = Math.min(activeBlock, Math.max(0, blocks.length - 1));
+  const displayContent = paginated ? blocks[safeBlock]?.content ?? "" : filteredContent;
+
+  // Reset to first block when switching lessons
+  useEffect(() => {
+    setActiveBlock(0);
+    blockInitedRef.current = false;
+  }, [lessonId]);
+
+  // On first load, honor ?b=<index> deep link
+  useEffect(() => {
+    if (blockInitedRef.current || blocks.length === 0) return;
+    blockInitedRef.current = true;
+    const b = parseInt(new URLSearchParams(window.location.search).get("b") || "0", 10);
+    if (!isNaN(b) && b > 0 && b < blocks.length) setActiveBlock(b);
+  }, [blocks.length]);
+
+  // Reflect active block in the URL and scroll to top on block change
+  useEffect(() => {
+    if (!paginated) return;
+    const base = window.location.pathname;
+    window.history.replaceState(null, "", safeBlock > 0 ? `${base}?b=${safeBlock}` : base);
+    contentScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, [safeBlock, paginated]);
+
+  const handleTocClick = (index: number, id: string) => {
+    if (paginated) {
+      setActiveBlock(index);
+    } else {
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
     setSidebarOpen(false);
   };
 
@@ -475,13 +520,18 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
             <>
               <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-4">Содержание урока</h3>
               <nav className="space-y-0.5">
-                {toc.map((item) => (
+                {toc.map((item, i) => (
                   <button
                     key={item.id}
-                    onClick={() => scrollToSection(item.id)}
-                    className="w-full flex text-left px-3 py-2 rounded-lg text-sm text-muted hover:text-foreground hover:bg-sidebar-hover transition-colors cursor-pointer whitespace-normal leading-snug"
+                    onClick={() => handleTocClick(i, item.id)}
+                    className={`w-full flex items-start gap-2 text-left px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer whitespace-normal leading-snug ${
+                      paginated && i === safeBlock
+                        ? "bg-accent/10 text-accent font-medium"
+                        : "text-muted hover:text-foreground hover:bg-sidebar-hover"
+                    }`}
                   >
-                    {item.text}
+                    <span className="text-xs opacity-60 shrink-0 mt-0.5">{i + 1}.</span>
+                    <span className="flex-1">{item.text}</span>
                   </button>
                 ))}
               </nav>
@@ -560,7 +610,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-y-auto animate-fade-in">
+      <div ref={contentScrollRef} className="flex-1 overflow-y-auto animate-fade-in">
         <div className="max-w-3xl mx-auto p-4 lg:p-8">
           {/* Breadcrumb */}
           <div className="flex items-center gap-2 text-sm text-muted mb-6">
@@ -616,8 +666,15 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
             </div>
           )}
 
+          {/* Block indicator (paginated sequential courses) */}
+          {paginated && (
+            <div className="flex items-center gap-2 text-xs font-semibold text-accent uppercase tracking-wider mb-4">
+              <span>Блок {safeBlock + 1} из {blocks.length}</span>
+            </div>
+          )}
+
           {/* Markdown Content */}
-          {filteredContent && (
+          {displayContent && (
             <div className="prose-dark mb-8">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
@@ -641,65 +698,114 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
                   ),
                 }}
               >
-                {filteredContent}
+                {displayContent}
               </ReactMarkdown>
             </div>
           )}
 
-          {/* Mark Complete */}
-          <div className="border-t border-border pt-6 mb-8">
-            <button
-              onClick={handleToggleComplete}
-              disabled={progressLoading}
-              className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium text-sm transition-all duration-200 cursor-pointer ${
-                isCompleted
-                  ? 'bg-success/10 text-success border border-success/20 hover:bg-success/20'
-                  : 'bg-accent text-accent-foreground hover:bg-accent-hover glow-accent'
-              }`}
-            >
-              {progressLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : isCompleted ? (
-                <CheckCircle2 className="w-4 h-4" />
-              ) : (
-                <Circle className="w-4 h-4" />
-              )}
-              {isCompleted ? "Урок пройден" : "Отметить как пройденное"}
-            </button>
-          </div>
+          {/* Mark Complete — always (non-paginated) or on the last block (paginated) */}
+          {(!paginated || safeBlock === blocks.length - 1) && (
+            <div className="border-t border-border pt-6 mb-8">
+              <button
+                onClick={handleToggleComplete}
+                disabled={progressLoading}
+                className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium text-sm transition-all duration-200 cursor-pointer ${
+                  isCompleted
+                    ? 'bg-success/10 text-success border border-success/20 hover:bg-success/20'
+                    : 'bg-accent text-accent-foreground hover:bg-accent-hover glow-accent'
+                }`}
+              >
+                {progressLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : isCompleted ? (
+                  <CheckCircle2 className="w-4 h-4" />
+                ) : (
+                  <Circle className="w-4 h-4" />
+                )}
+                {isCompleted ? "Урок пройден" : "Отметить как пройденное"}
+              </button>
+            </div>
+          )}
 
           {/* Navigation */}
-          <div className="flex items-center justify-between pb-8">
-            {prevLesson ? (
-              <Link
-                href={`/lessons/${prevLesson.id}`}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm text-muted hover:text-foreground hover:bg-card-hover border border-border transition-colors"
+          {paginated ? (
+            <div className="flex items-center justify-between gap-3 pb-8">
+              <button
+                onClick={() => {
+                  if (safeBlock > 0) setActiveBlock(safeBlock - 1);
+                  else if (prevLesson) router.push(`/lessons/${prevLesson.id}`);
+                }}
+                disabled={safeBlock === 0 && !prevLesson}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm text-muted hover:text-foreground hover:bg-card-hover border border-border transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 <ArrowLeft className="w-4 h-4" />
-                <span className="hidden sm:inline">{prevLesson.title}</span>
+                <span className="hidden sm:inline">{safeBlock > 0 ? "Предыдущий блок" : "Прошлый урок"}</span>
                 <span className="sm:hidden">Назад</span>
-              </Link>
-            ) : <div />}
+              </button>
 
-            {nextLesson ? (
-              <Link
-                href={`/lessons/${nextLesson.id}`}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm bg-accent/10 text-accent hover:bg-accent/20 border border-accent/20 transition-colors"
-              >
-                <span className="hidden sm:inline">{nextLesson.title}</span>
-                <span className="sm:hidden">Далее</span>
-                <ArrowRight className="w-4 h-4" />
-              </Link>
-            ) : (
-              <Link
-                href="/dashboard"
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm bg-accent text-accent-foreground hover:bg-accent-hover transition-colors glow-accent"
-              >
-                Завершить курс
-                <CheckCircle2 className="w-4 h-4" />
-              </Link>
-            )}
-          </div>
+              <span className="text-xs text-muted shrink-0">{safeBlock + 1} / {blocks.length}</span>
+
+              {safeBlock < blocks.length - 1 ? (
+                <button
+                  onClick={() => setActiveBlock(safeBlock + 1)}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm bg-accent/10 text-accent hover:bg-accent/20 border border-accent/20 transition-colors cursor-pointer"
+                >
+                  <span className="hidden sm:inline">Следующий блок</span>
+                  <span className="sm:hidden">Далее</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              ) : nextLesson ? (
+                <Link
+                  href={`/lessons/${nextLesson.id}`}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm bg-accent/10 text-accent hover:bg-accent/20 border border-accent/20 transition-colors"
+                >
+                  <span className="hidden sm:inline">Следующий урок</span>
+                  <span className="sm:hidden">Далее</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              ) : (
+                <Link
+                  href="/dashboard"
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm bg-accent text-accent-foreground hover:bg-accent-hover transition-colors glow-accent"
+                >
+                  Завершить курс
+                  <CheckCircle2 className="w-4 h-4" />
+                </Link>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between pb-8">
+              {prevLesson ? (
+                <Link
+                  href={`/lessons/${prevLesson.id}`}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm text-muted hover:text-foreground hover:bg-card-hover border border-border transition-colors"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span className="hidden sm:inline">{prevLesson.title}</span>
+                  <span className="sm:hidden">Назад</span>
+                </Link>
+              ) : <div />}
+
+              {nextLesson ? (
+                <Link
+                  href={`/lessons/${nextLesson.id}`}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm bg-accent/10 text-accent hover:bg-accent/20 border border-accent/20 transition-colors"
+                >
+                  <span className="hidden sm:inline">{nextLesson.title}</span>
+                  <span className="sm:hidden">Далее</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              ) : (
+                <Link
+                  href="/dashboard"
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm bg-accent text-accent-foreground hover:bg-accent-hover transition-colors glow-accent"
+                >
+                  Завершить курс
+                  <CheckCircle2 className="w-4 h-4" />
+                </Link>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

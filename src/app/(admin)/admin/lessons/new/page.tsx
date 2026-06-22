@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Topic } from "@/types";
-import { ArrowLeft, Save, Loader2, Eye, Code } from "lucide-react";
+import { ArrowLeft, Save, Loader2, Eye, Code, ImagePlus } from "lucide-react";
 import Link from "next/link";
 
 export default function NewLessonPage() {
@@ -21,10 +21,47 @@ export default function NewLessonPage() {
   const [loading, setLoading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
   const editId = searchParams.get("edit");
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/admin/upload", {
+        method: "POST",
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : undefined,
+        body: formData,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Ошибка загрузки");
+
+      const snippet = `\n![Скриншот](${json.url})\n`;
+      const ta = textareaRef.current;
+      if (ta) {
+        const start = ta.selectionStart ?? content.length;
+        const end = ta.selectionEnd ?? content.length;
+        setContent(content.slice(0, start) + snippet + content.slice(end));
+      } else {
+        setContent((c) => c + snippet);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Не удалось загрузить изображение");
+    } finally {
+      setUploading(false);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -107,16 +144,29 @@ export default function NewLessonPage() {
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <label className="block text-sm font-medium text-foreground">Содержание (Markdown)</label>
-            <button type="button" onClick={() => setShowPreview(!showPreview)} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors cursor-pointer">
-              {showPreview ? <><Code className="w-3.5 h-3.5" />Редактор</> : <><Eye className="w-3.5 h-3.5" />Превью</>}
-            </button>
+            <div className="flex items-center gap-4">
+              <label className={`flex items-center gap-1.5 text-xs transition-colors ${uploading ? "text-muted cursor-wait" : "text-muted hover:text-foreground cursor-pointer"}`}>
+                {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />}
+                {uploading ? "Загрузка…" : "Загрузить скрин"}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  onChange={handleImageUpload}
+                  disabled={uploading}
+                  className="hidden"
+                />
+              </label>
+              <button type="button" onClick={() => setShowPreview(!showPreview)} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors cursor-pointer">
+                {showPreview ? <><Code className="w-3.5 h-3.5" />Редактор</> : <><Eye className="w-3.5 h-3.5" />Превью</>}
+              </button>
+            </div>
           </div>
           {showPreview ? (
             <div className="min-h-[300px] p-4 rounded-xl bg-input border border-border prose-dark">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || '*Нет содержания*'}</ReactMarkdown>
             </div>
           ) : (
-            <textarea value={content} onChange={e => setContent(e.target.value)} placeholder="# Заголовок\n\nТекст урока в формате Markdown..." rows={12} className="w-full px-4 py-3 rounded-xl bg-input border border-border focus:border-accent focus:ring-1 focus:ring-accent outline-none text-sm text-foreground placeholder:text-muted-foreground transition-colors resize-y font-mono" />
+            <textarea ref={textareaRef} value={content} onChange={e => setContent(e.target.value)} placeholder="# Заголовок\n\nТекст урока в формате Markdown..." rows={12} className="w-full px-4 py-3 rounded-xl bg-input border border-border focus:border-accent focus:ring-1 focus:ring-accent outline-none text-sm text-foreground placeholder:text-muted-foreground transition-colors resize-y font-mono" />
           )}
         </div>
 
