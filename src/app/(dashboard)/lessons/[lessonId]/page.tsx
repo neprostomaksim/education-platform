@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, use, useMemo, useRef } from "react";
+import { useEffect, useState, use, useMemo, useRef, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
@@ -51,6 +51,45 @@ const slugify = (text: string) =>
 // Escape a string for safe use inside a RegExp
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+// Split markdown into top-level segments by blank lines, keeping fenced code blocks whole
+const splitSegments = (md: string): string[] => {
+  const segments: string[] = [];
+  let buffer: string[] = [];
+  let inCode = false;
+  const flush = () => {
+    if (buffer.join("\n").trim()) segments.push(buffer.join("\n").trim());
+    buffer = [];
+  };
+  for (const line of md.split("\n")) {
+    const isFence = line.trim().startsWith("```");
+    if (isFence) inCode = !inCode;
+    if (!inCode && !isFence && line.trim() === "") {
+      flush();
+    } else {
+      buffer.push(line);
+    }
+  }
+  flush();
+  return segments;
+};
+
+// Admin-only affordance to insert an image between content segments
+function InsertImageRow({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
+  return (
+    <div className="my-2 flex justify-center">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className="flex items-center gap-1.5 text-xs text-muted/60 hover:text-accent border border-dashed border-transparent hover:border-accent/40 rounded-lg px-3 py-1 transition-all cursor-pointer disabled:opacity-50"
+      >
+        <ImagePlus className="w-3.5 h-3.5" />
+        Добавить изображение здесь
+      </button>
+    </div>
+  );
+}
+
 // Extract plain text from React markdown children (for heading ids)
 const nodeToText = (node: React.ReactNode): string => {
   if (typeof node === "string" || typeof node === "number") return String(node);
@@ -72,7 +111,11 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
   const [sequentialAccess, setSequentialAccess] = useState(false);
   const [activeBlock, setActiveBlock] = useState(0);
   const [selectedSpecialty, setSelectedSpecialty] = useState<Specialty>("all");
-  const [uploadTargetPlaceholder, setUploadTargetPlaceholder] = useState<string | null>(null);
+  const [uploadTarget, setUploadTarget] = useState<
+    | { kind: "placeholder"; placeholder: string }
+    | { kind: "insert"; segIndex: number; blockContent: string }
+    | null
+  >(null);
   const [screenshotUploading, setScreenshotUploading] = useState(false);
   const contentScrollRef = useRef<HTMLDivElement>(null);
   const blockInitedRef = useRef(false);
@@ -140,6 +183,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
   const paginated = sequentialAccess && blocks.length > 1;
   const safeBlock = Math.min(activeBlock, Math.max(0, blocks.length - 1));
   const displayContent = paginated ? blocks[safeBlock]?.content ?? "" : filteredContent;
+  const segments = useMemo(() => splitSegments(displayContent), [displayContent]);
 
   // Reset to first block when switching lessons
   useEffect(() => {
@@ -183,15 +227,21 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
   };
 
   const handleScreenshotPick = (placeholder: string) => {
-    setUploadTargetPlaceholder(placeholder);
+    setUploadTarget({ kind: "placeholder", placeholder });
+    screenshotInputRef.current?.click();
+  };
+
+  const handleInsertPick = (segIndex: number) => {
+    const blockContent = paginated ? blocks[safeBlock]?.content ?? "" : filteredContent;
+    setUploadTarget({ kind: "insert", segIndex, blockContent });
     screenshotInputRef.current?.click();
   };
 
   const handleScreenshotChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    const placeholder = uploadTargetPlaceholder;
-    if (!file || !placeholder || !lesson?.content) return;
+    const target = uploadTarget;
+    if (!file || !target || !lesson?.content) return;
 
     setScreenshotUploading(true);
     try {
@@ -206,22 +256,112 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Ошибка загрузки");
 
-      // Replace the [СКРИН: ...] placeholder (optionally wrapped in backticks) with the image
-      const re = new RegExp("`?" + escapeRegex(placeholder) + "`?");
-      await persistContent(lesson.content.replace(re, `![Скриншот|100](${json.url})`));
-      addToast("Скриншот добавлен", "success");
+      const image = `![Скриншот|100](${json.url})`;
+      if (target.kind === "placeholder") {
+        // Replace the [СКРИН: ...] placeholder (optionally wrapped in backticks)
+        const re = new RegExp("`?" + escapeRegex(target.placeholder) + "`?");
+        await persistContent(lesson.content.replace(re, () => image));
+      } else {
+        // Insert the image after the chosen segment of the current block
+        const segs = splitSegments(target.blockContent);
+        segs.splice(target.segIndex + 1, 0, image);
+        await persistContent(lesson.content.replace(target.blockContent, () => segs.join("\n\n")));
+      }
+      addToast("Изображение добавлено", "success");
     } catch (err) {
       addToast(err instanceof Error ? err.message : "Ошибка загрузки", "error");
     } finally {
       setScreenshotUploading(false);
-      setUploadTargetPlaceholder(null);
+      setUploadTarget(null);
     }
   };
 
   const setImageWidth = async (url: string, width: number) => {
     if (!lesson?.content) return;
     const re = new RegExp("!\\[[^\\]]*\\]\\(" + escapeRegex(url) + "\\)");
-    await persistContent(lesson.content.replace(re, `![Скриншот|${width}](${url})`));
+    await persistContent(lesson.content.replace(re, () => `![Скриншот|${width}](${url})`));
+  };
+
+  const mdComponents: Components = {
+    pre: CodeBlockWrapper,
+    h2: ({ children }) => (
+      <h2 id={slugify(nodeToText(children))} className="scroll-mt-6">
+        {children}
+      </h2>
+    ),
+    p: ({ children }) => {
+      const text = nodeToText(children).trim();
+      const placeholders = text.match(/\[СКРИН:[^\]]*\]/g);
+      const residue = text.replace(/\[СКРИН:[^\]]*\]/g, "").trim();
+      // A paragraph made up solely of [СКРИН: ...] placeholder(s)
+      if (placeholders && residue === "") {
+        if (!isAdmin) return null; // hide raw placeholders from students
+        return (
+          <span className="my-5 flex flex-col gap-2">
+            {placeholders.map((ph, i) => {
+              const uploading = screenshotUploading && uploadTarget?.kind === "placeholder" && uploadTarget.placeholder === ph;
+              const desc = ph.replace(/^\[СКРИН:\s*/, "").replace(/\]$/, "");
+              return (
+                <span
+                  key={`${ph}-${i}`}
+                  onClick={() => !uploading && handleScreenshotPick(ph)}
+                  className="flex flex-col items-center justify-center gap-1.5 p-6 rounded-2xl border-2 border-dashed border-border hover:border-accent/60 bg-card/40 hover:bg-card/60 text-center cursor-pointer transition-all"
+                >
+                  {uploading ? (
+                    <Loader2 className="w-5 h-5 animate-spin text-accent" />
+                  ) : (
+                    <ImagePlus className="w-5 h-5 text-accent" />
+                  )}
+                  <span className="text-sm font-medium text-foreground">
+                    {uploading ? "Загрузка…" : "Добавить скриншот"}
+                  </span>
+                  {desc && <span className="text-xs text-muted">{desc}</span>}
+                </span>
+              );
+            })}
+          </span>
+        );
+      }
+      return <p>{children}</p>;
+    },
+    img: ({ src, alt }) => {
+      const altStr = typeof alt === "string" ? alt : "";
+      const m = altStr.match(/\|(\d+)\s*$/);
+      const width = m ? Math.min(100, Math.max(10, parseInt(m[1], 10))) : 100;
+      const label = altStr.replace(/\|\d+\s*$/, "").trim() || "Скриншот";
+      return (
+        <span className="block my-4">
+          <img
+            src={src}
+            alt={label}
+            style={{ width: `${width}%` }}
+            onClick={() => {
+              if (typeof src === "string") setActiveImage(src);
+            }}
+            className="rounded-xl cursor-zoom-in"
+          />
+          {isAdmin && typeof src === "string" && (
+            <span className="mt-2 flex items-center gap-1.5 text-xs text-muted">
+              <span>Размер:</span>
+              {[25, 50, 75, 100].map((w) => (
+                <button
+                  key={w}
+                  type="button"
+                  onClick={() => setImageWidth(src, w)}
+                  className={`px-2 py-0.5 rounded-md border transition-colors cursor-pointer ${
+                    width === w
+                      ? "border-accent text-accent bg-accent/10"
+                      : "border-border hover:text-foreground"
+                  }`}
+                >
+                  {w}%
+                </button>
+              ))}
+            </span>
+          )}
+        </span>
+      );
+    },
   };
 
   useEffect(() => {
@@ -735,93 +875,23 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
           {/* Markdown Content */}
           {displayContent && (
             <div className="prose-dark mb-8">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  pre: CodeBlockWrapper,
-                  h2: ({ children }) => (
-                    <h2 id={slugify(nodeToText(children))} className="scroll-mt-6">
-                      {children}
-                    </h2>
-                  ),
-                  p: ({ children }) => {
-                    const text = nodeToText(children).trim();
-                    const placeholders = text.match(/\[СКРИН:[^\]]*\]/g);
-                    const residue = text.replace(/\[СКРИН:[^\]]*\]/g, "").trim();
-                    // A paragraph made up solely of [СКРИН: ...] placeholder(s)
-                    if (placeholders && residue === "") {
-                      // Hide raw placeholders from students
-                      if (!isAdmin) return null;
-                      return (
-                        <span className="my-5 flex flex-col gap-2">
-                          {placeholders.map((ph, i) => {
-                            const uploading = screenshotUploading && uploadTargetPlaceholder === ph;
-                            const desc = ph.replace(/^\[СКРИН:\s*/, "").replace(/\]$/, "");
-                            return (
-                              <span
-                                key={`${ph}-${i}`}
-                                onClick={() => !uploading && handleScreenshotPick(ph)}
-                                className="flex flex-col items-center justify-center gap-1.5 p-6 rounded-2xl border-2 border-dashed border-border hover:border-accent/60 bg-card/40 hover:bg-card/60 text-center cursor-pointer transition-all"
-                              >
-                                {uploading ? (
-                                  <Loader2 className="w-5 h-5 animate-spin text-accent" />
-                                ) : (
-                                  <ImagePlus className="w-5 h-5 text-accent" />
-                                )}
-                                <span className="text-sm font-medium text-foreground">
-                                  {uploading ? "Загрузка…" : "Добавить скриншот"}
-                                </span>
-                                {desc && <span className="text-xs text-muted">{desc}</span>}
-                              </span>
-                            );
-                          })}
-                        </span>
-                      );
-                    }
-                    return <p>{children}</p>;
-                  },
-                  img: ({ src, alt }) => {
-                    const altStr = typeof alt === "string" ? alt : "";
-                    const m = altStr.match(/\|(\d+)\s*$/);
-                    const width = m ? Math.min(100, Math.max(10, parseInt(m[1], 10))) : 100;
-                    const label = altStr.replace(/\|\d+\s*$/, "").trim() || "Скриншот";
-                    return (
-                      <span className="block my-4">
-                        <img
-                          src={src}
-                          alt={label}
-                          style={{ width: `${width}%` }}
-                          onClick={() => {
-                            if (typeof src === "string") setActiveImage(src);
-                          }}
-                          className="rounded-xl cursor-zoom-in"
-                        />
-                        {isAdmin && typeof src === "string" && (
-                          <span className="mt-2 flex items-center gap-1.5 text-xs text-muted">
-                            <span>Размер:</span>
-                            {[25, 50, 75, 100].map((w) => (
-                              <button
-                                key={w}
-                                type="button"
-                                onClick={() => setImageWidth(src, w)}
-                                className={`px-2 py-0.5 rounded-md border transition-colors cursor-pointer ${
-                                  width === w
-                                    ? "border-accent text-accent bg-accent/10"
-                                    : "border-border hover:text-foreground"
-                                }`}
-                              >
-                                {w}%
-                              </button>
-                            ))}
-                          </span>
-                        )}
-                      </span>
-                    );
-                  },
-                }}
-              >
-                {displayContent}
-              </ReactMarkdown>
+              {isAdmin ? (
+                <>
+                  <InsertImageRow onClick={() => handleInsertPick(-1)} disabled={screenshotUploading} />
+                  {segments.map((seg, i) => (
+                    <Fragment key={i}>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                        {seg}
+                      </ReactMarkdown>
+                      <InsertImageRow onClick={() => handleInsertPick(i)} disabled={screenshotUploading} />
+                    </Fragment>
+                  ))}
+                </>
+              ) : (
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                  {displayContent}
+                </ReactMarkdown>
+              )}
             </div>
           )}
 
