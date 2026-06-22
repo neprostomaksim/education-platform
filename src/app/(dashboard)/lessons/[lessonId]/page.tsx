@@ -39,6 +39,24 @@ interface TopicWithLessons extends Topic {
 // Topic ID for Prompt Engineering module
 const PROMPT_ENGINEERING_TOPIC_ID = "550e8400-e29b-41d4-a716-446655440001";
 
+// Build a URL-safe anchor id from heading text (keeps Cyrillic letters)
+const slugify = (text: string) =>
+  text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
+
+// Extract plain text from React markdown children (for heading ids)
+const nodeToText = (node: React.ReactNode): string => {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(nodeToText).join("");
+  if (node && typeof node === "object" && "props" in node) {
+    return nodeToText((node as { props?: { children?: React.ReactNode } }).props?.children);
+  }
+  return "";
+};
+
 export default function LessonPage({ params }: { params: Promise<{ lessonId: string }> }) {
   const { lessonId } = use(params);
   const [lesson, setLesson] = useState<LessonWithTopic | null>(null);
@@ -47,6 +65,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [sequentialAccess, setSequentialAccess] = useState(false);
   const [selectedSpecialty, setSelectedSpecialty] = useState<Specialty>("all");
   const [activeImage, setActiveImage] = useState<string | null>(null);
   const { user, profile, loading: userLoading } = useUser();
@@ -75,6 +94,31 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
     const trimmed = rawContent.trimStart();
     return trimmed.replace(/^#\s+[^\r\n]+(\r?\n)*/, "");
   }, [lesson?.content, selectedSpecialty, hasSpecialtyContent]);
+
+  // Build in-lesson table of contents from H2 headings (skipping code fences)
+  const toc = useMemo(() => {
+    if (!filteredContent) return [] as { id: string; text: string }[];
+    const items: { id: string; text: string }[] = [];
+    let inCode = false;
+    for (const line of filteredContent.split("\n")) {
+      if (line.trim().startsWith("```")) {
+        inCode = !inCode;
+        continue;
+      }
+      if (inCode) continue;
+      const m = /^##\s+(.+?)\s*$/.exec(line);
+      if (m) {
+        const text = m[1].replace(/[*_`]/g, "").trim();
+        items.push({ id: slugify(text), text });
+      }
+    }
+    return items;
+  }, [filteredContent]);
+
+  const scrollToSection = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setSidebarOpen(false);
+  };
 
   useEffect(() => {
     // Don't fetch until useUser has finished loading
@@ -288,6 +332,8 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
           .eq("id", currentCourseId)
           .single();
 
+        setSequentialAccess(!!courseData?.sequential_access);
+
         if (!cErr && courseData?.sequential_access && lessonData.sort_order !== 1 && profile?.role !== "admin") {
           const { data: accessData, error: accessErr } = await supabase
             .from("user_lesson_access")
@@ -410,11 +456,38 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
       {/* Lesson Sidebar */}
       <aside className={`fixed lg:relative top-0 right-0 lg:right-auto z-50 lg:z-auto h-full w-80 bg-sidebar border-l lg:border-l-0 lg:border-r border-border overflow-y-auto transform transition-transform duration-300 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}`}>
         <div className="p-4">
-          <Link href="/dashboard" className="flex items-center gap-2 text-sm text-muted hover:text-foreground transition-colors mb-6">
-            <ArrowLeft className="w-4 h-4" />
-            Назад к дашборду
-          </Link>
+          {sequentialAccess ? (
+            <Link
+              href={lesson.topic?.course_id ? `/courses/${lesson.topic.course_id}` : "/dashboard"}
+              className="flex items-center gap-2 text-sm text-muted hover:text-foreground transition-colors mb-6"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              К списку уроков
+            </Link>
+          ) : (
+            <Link href="/dashboard" className="flex items-center gap-2 text-sm text-muted hover:text-foreground transition-colors mb-6">
+              <ArrowLeft className="w-4 h-4" />
+              Назад к дашборду
+            </Link>
+          )}
 
+          {sequentialAccess ? (
+            <>
+              <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-4">Содержание урока</h3>
+              <nav className="space-y-0.5">
+                {toc.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => scrollToSection(item.id)}
+                    className="w-full flex text-left px-3 py-2 rounded-lg text-sm text-muted hover:text-foreground hover:bg-sidebar-hover transition-colors cursor-pointer whitespace-normal leading-snug"
+                  >
+                    {item.text}
+                  </button>
+                ))}
+              </nav>
+            </>
+          ) : (
+          <>
           <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-4">Оглавление</h3>
 
           <div className="space-y-1">
@@ -481,6 +554,8 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
               </div>
             ))}
           </div>
+          </>
+          )}
         </div>
       </aside>
 
@@ -548,6 +623,11 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
                 remarkPlugins={[remarkGfm]}
                 components={{
                   pre: CodeBlockWrapper,
+                  h2: ({ children }) => (
+                    <h2 id={slugify(nodeToText(children))} className="scroll-mt-6">
+                      {children}
+                    </h2>
+                  ),
                   img: ({ src, alt }) => (
                     <img
                       src={src}
