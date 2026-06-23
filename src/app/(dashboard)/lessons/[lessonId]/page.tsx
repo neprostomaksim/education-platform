@@ -340,11 +340,17 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
           <img
             src={src}
             alt={label}
-            style={{ width: `${width}%` }}
+            style={{
+              width: `${width}%`,
+              maxWidth: "100%",
+              display: "block",
+              marginLeft: "auto",
+              marginRight: "auto",
+            }}
             onClick={() => {
               if (typeof src === "string") setActiveImage(src);
             }}
-            className="rounded-xl cursor-zoom-in block mx-auto"
+            className="rounded-xl cursor-zoom-in"
           />
           {editing && typeof src === "string" && (
             <span className="mt-2 flex items-center justify-center gap-1.5 text-xs text-muted">
