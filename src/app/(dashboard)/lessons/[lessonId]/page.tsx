@@ -27,6 +27,8 @@ import {
   Loader2,
   Play,
   ImagePlus,
+  Plus,
+  Pencil,
 } from "lucide-react";
 
 interface LessonWithTopic extends Lesson {
@@ -73,18 +75,18 @@ const splitSegments = (md: string): string[] => {
   return segments;
 };
 
-// Admin-only affordance to insert an image between content segments
+// Admin-only affordance to insert an image between content segments (small "+")
 function InsertImageRow({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
   return (
-    <div className="my-2 flex justify-center">
+    <div className="my-1 flex justify-center">
       <button
         type="button"
         onClick={onClick}
         disabled={disabled}
-        className="flex items-center gap-1.5 text-xs text-muted/60 hover:text-accent border border-dashed border-transparent hover:border-accent/40 rounded-lg px-3 py-1 transition-all cursor-pointer disabled:opacity-50"
+        title="Добавить изображение"
+        className="w-7 h-7 flex items-center justify-center rounded-full border border-dashed border-border text-muted hover:text-accent hover:border-accent/60 transition-all cursor-pointer disabled:opacity-50"
       >
-        <ImagePlus className="w-3.5 h-3.5" />
-        Добавить изображение здесь
+        <Plus className="w-4 h-4" />
       </button>
     </div>
   );
@@ -117,6 +119,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
     | null
   >(null);
   const [screenshotUploading, setScreenshotUploading] = useState(false);
+  const [editMode, setEditMode] = useState(false);
   const contentScrollRef = useRef<HTMLDivElement>(null);
   const blockInitedRef = useRef(false);
   const screenshotInputRef = useRef<HTMLInputElement>(null);
@@ -217,6 +220,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
   };
 
   const isAdmin = profile?.role === "admin";
+  const editing = isAdmin && editMode; // editing affordances are hidden until admin enables edit mode
 
   // Persist edited lesson content (admin-only inline editing of screenshots)
   const persistContent = async (newContent: string) => {
@@ -258,9 +262,11 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
 
       const image = `![Скриншот|100](${json.url})`;
       if (target.kind === "placeholder") {
-        // Replace the [СКРИН: ...] placeholder (optionally wrapped in backticks)
+        // Replace the [СКРИН: ...] placeholder (optionally wrapped in backticks).
+        // Wrap in blank lines so the image becomes its own block — important when
+        // several placeholders share one paragraph (e.g. ChatGPT + Gemini).
         const re = new RegExp("`?" + escapeRegex(target.placeholder) + "`?");
-        await persistContent(lesson.content.replace(re, () => image));
+        await persistContent(lesson.content.replace(re, () => `\n\n${image}\n\n`));
       } else {
         // Insert the image after the chosen segment of the current block
         const segs = splitSegments(target.blockContent);
@@ -295,7 +301,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
       const residue = text.replace(/\[СКРИН:[^\]]*\]/g, "").trim();
       // A paragraph made up solely of [СКРИН: ...] placeholder(s)
       if (placeholders && residue === "") {
-        if (!isAdmin) return null; // hide raw placeholders from students
+        if (!editing) return null; // hidden unless admin is in edit mode
         return (
           <span className="my-5 flex flex-col gap-2">
             {placeholders.map((ph, i) => {
@@ -330,7 +336,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
       const width = m ? Math.min(100, Math.max(10, parseInt(m[1], 10))) : 100;
       const label = altStr.replace(/\|\d+\s*$/, "").trim() || "Скриншот";
       return (
-        <span className="block my-4">
+        <span className="block my-4 text-center">
           <img
             src={src}
             alt={label}
@@ -338,10 +344,10 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
             onClick={() => {
               if (typeof src === "string") setActiveImage(src);
             }}
-            className="rounded-xl cursor-zoom-in"
+            className="rounded-xl cursor-zoom-in block mx-auto"
           />
-          {isAdmin && typeof src === "string" && (
-            <span className="mt-2 flex items-center gap-1.5 text-xs text-muted">
+          {editing && typeof src === "string" && (
+            <span className="mt-2 flex items-center justify-center gap-1.5 text-xs text-muted">
               <span>Размер:</span>
               {[25, 50, 75, 100].map((w) => (
                 <button
@@ -822,7 +828,22 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
 
           {/* Lesson Header */}
           <div className="mb-6">
-            <h1 className="text-2xl lg:text-3xl font-bold text-foreground mb-3">{lesson.title}</h1>
+            <div className="flex items-start justify-between gap-3">
+              <h1 className="text-2xl lg:text-3xl font-bold text-foreground mb-3">{lesson.title}</h1>
+              {isAdmin && (
+                <button
+                  onClick={() => setEditMode((v) => !v)}
+                  className={`flex items-center gap-1.5 shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                    editMode
+                      ? "bg-accent text-accent-foreground border-accent"
+                      : "text-muted border-border hover:text-foreground hover:bg-card-hover"
+                  }`}
+                >
+                  {editMode ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+                  {editMode ? "Готово" : "Редактировать"}
+                </button>
+              )}
+            </div>
             <div className="flex items-center gap-4 text-sm text-muted">
               {lesson.duration_minutes > 0 && (
                 <span className="flex items-center gap-1.5">
@@ -875,7 +896,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
           {/* Markdown Content */}
           {displayContent && (
             <div className="prose-dark mb-8">
-              {isAdmin ? (
+              {editing ? (
                 <>
                   <InsertImageRow onClick={() => handleInsertPick(-1)} disabled={screenshotUploading} />
                   {segments.map((seg, i) => (
