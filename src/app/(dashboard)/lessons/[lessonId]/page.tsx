@@ -29,6 +29,7 @@ import {
   ImagePlus,
   Plus,
   Pencil,
+  Trash2,
 } from "lucide-react";
 
 interface LessonWithTopic extends Lesson {
@@ -260,6 +261,15 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Ошибка загрузки");
 
+      // Preload so the image is in the browser cache before it renders
+      // (иначе свежий URL из Storage иногда не успевает отдаться и требуется перезагрузка)
+      await new Promise<void>((resolve) => {
+        const pre = new Image();
+        pre.onload = () => resolve();
+        pre.onerror = () => resolve();
+        pre.src = json.url;
+      });
+
       const image = `![Скриншот|100](${json.url})`;
       if (target.kind === "placeholder") {
         // Replace the [СКРИН: ...] placeholder (optionally wrapped in backticks).
@@ -286,6 +296,15 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
     if (!lesson?.content) return;
     const re = new RegExp("!\\[[^\\]]*\\]\\(" + escapeRegex(url) + "\\)");
     await persistContent(lesson.content.replace(re, () => `![Скриншот|${width}](${url})`));
+  };
+
+  const deleteImage = async (url: string) => {
+    if (!lesson?.content) return;
+    if (!window.confirm("Удалить это изображение? Действие необратимо.")) return;
+    // Remove the image markdown along with surrounding blank lines
+    const re = new RegExp("\\n*!\\[[^\\]]*\\]\\(" + escapeRegex(url) + "\\)\\n*");
+    await persistContent(lesson.content.replace(re, "\n\n"));
+    addToast("Изображение удалено", "info");
   };
 
   const mdComponents: Components = {
@@ -353,7 +372,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
             className="rounded-xl cursor-zoom-in"
           />
           {editing && typeof src === "string" && (
-            <span className="mt-2 flex items-center justify-center gap-1.5 text-xs text-muted">
+            <span className="mt-2 flex items-center justify-center flex-wrap gap-1.5 text-xs text-muted">
               <span>Размер:</span>
               {[25, 50, 75, 100].map((w) => (
                 <button
@@ -369,6 +388,14 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
                   {w}%
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => deleteImage(src)}
+                className="ml-2 flex items-center gap-1 px-2 py-0.5 rounded-md border border-border text-error hover:bg-error/10 hover:border-error/40 transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Удалить
+              </button>
             </span>
           )}
         </span>
