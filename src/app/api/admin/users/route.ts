@@ -120,3 +120,76 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: err.message || "Внутренняя ошибка сервера" }, { status: 500 });
   }
 }
+
+export async function DELETE(request: Request) {
+  console.log("=== API Route /api/admin/users DELETE called ===");
+  try {
+    const authHeader = request.headers.get("Authorization");
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
+
+    // 1. Authenticate the caller (Bearer token, or cookie session as fallback)
+    const supabase = await createClient();
+    const { data: authData, error: authError } = token
+      ? await supabase.auth.getUser(token)
+      : await supabase.auth.getUser();
+    const caller = authData?.user;
+
+    if (authError || !caller) {
+      return NextResponse.json({ error: "Неавторизован" }, { status: 401 });
+    }
+
+    // 2. Verify the caller is an admin
+    const { data: callerProfile, error: callerError } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", caller.id)
+      .single();
+
+    if (callerError || callerProfile?.role !== "admin") {
+      return NextResponse.json({ error: "Доступ запрещен" }, { status: 403 });
+    }
+
+    // 3. Parse and validate the target user id
+    const { userId } = await request.json();
+    if (!userId) {
+      return NextResponse.json({ error: "Не передан userId" }, { status: 400 });
+    }
+    if (userId === caller.id) {
+      return NextResponse.json({ error: "Нельзя удалить самого себя" }, { status: 400 });
+    }
+
+    const adminClient = createAdminClient();
+
+    // 4. Guard: never delete another administrator
+    const { data: target } = await adminClient
+      .from("profiles")
+      .select("role")
+      .eq("id", userId)
+      .single();
+
+    if (target?.role === "admin") {
+      return NextResponse.json({ error: "Нельзя удалить администратора" }, { status: 400 });
+    }
+
+    // 5. Explicitly remove the user's data (FKs also cascade, but be deterministic)
+    await adminClient.from("progress").delete().eq("user_id", userId);
+    await adminClient.from("user_lesson_access").delete().eq("user_id", userId);
+    await adminClient.from("user_courses").delete().eq("user_id", userId);
+
+    // 6. Delete the auth user — cascades the profile row via ON DELETE CASCADE
+    const { error: deleteError } = await adminClient.auth.admin.deleteUser(userId);
+    if (deleteError) {
+      console.error("Auth user deletion failed:", deleteError);
+      return NextResponse.json(
+        { error: `Не удалось удалить пользователя: ${deleteError.message}` },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err: unknown) {
+    console.error("Admin user deletion endpoint error:", err);
+    const message = err instanceof Error ? err.message : "Внутренняя ошибка сервера";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

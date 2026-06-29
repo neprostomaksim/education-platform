@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { Profile, Course, UserCourse } from "@/types";
 import { getInitials } from "@/lib/utils";
 import { useToast } from "@/components/shared/toast-provider";
-import { Shield, ShieldAlert, CheckCircle2, ChevronDown, ChevronUp, Loader2, UserPlus, X } from "lucide-react";
+import { Shield, ShieldAlert, CheckCircle2, ChevronDown, ChevronUp, Loader2, UserPlus, X, Trash2, AlertTriangle } from "lucide-react";
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<Profile[]>([]);
@@ -23,7 +23,9 @@ export default function AdminUsersPage() {
     isApproved: true,
   });
   const [isCreating, setIsCreating] = useState(false);
-  
+  const [userToDelete, setUserToDelete] = useState<Profile | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const supabase = createClient();
   const { addToast } = useToast();
 
@@ -100,6 +102,39 @@ export default function AdminUsersPage() {
       addToast("Ошибка при обновлении доступов", "error");
     } finally {
       setProcessingId(null);
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    setIsDeleting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      const response = await fetch("/api/admin/users", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ userId }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || "Не удалось удалить пользователя");
+      }
+
+      setUsers(users.filter(u => u.id !== userId));
+      setUserCourses(userCourses.filter(uc => uc.user_id !== userId));
+      if (expandedUserId === userId) setExpandedUserId(null);
+      addToast("Пользователь удалён", "success");
+      setUserToDelete(null);
+    } catch (error: any) {
+      console.error(error);
+      addToast(error.message || "Ошибка при удалении пользователя", "error");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -240,17 +275,25 @@ export default function AdminUsersPage() {
                     <td className="p-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         {user.role !== "admin" && (
-                          <button
-                            onClick={() => toggleApproval(user.id, user.is_approved)}
-                            disabled={isProcessing}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                              user.is_approved 
-                                ? "bg-error/10 text-error hover:bg-error/20" 
-                                : "bg-success/10 text-success hover:bg-success/20"
-                            }`}
-                          >
-                            {isProcessing ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : (user.is_approved ? "Заблокировать" : "Одобрить")}
-                          </button>
+                          <>
+                            {!user.is_approved && (
+                              <button
+                                onClick={() => toggleApproval(user.id, user.is_approved)}
+                                disabled={isProcessing}
+                                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors bg-success/10 text-success hover:bg-success/20"
+                              >
+                                {isProcessing ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Одобрить"}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => setUserToDelete(user)}
+                              disabled={isProcessing}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors bg-error/10 text-error hover:bg-error/20"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Удалить
+                            </button>
+                          </>
                         )}
                         <button
                           onClick={() => setExpandedUserId(isExpanded ? null : user.id)}
@@ -315,6 +358,46 @@ export default function AdminUsersPage() {
       </div>
     </div>
       
+      {userToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <div className="flex items-start gap-4">
+                <div className="w-11 h-11 rounded-full bg-error/10 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-error" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-lg font-bold text-foreground">Удалить пользователя?</h3>
+                  <p className="text-sm text-muted mt-1">
+                    {userToDelete.full_name || userToDelete.email || "Пользователь"} будет удалён безвозвратно.
+                    Вместе с аккаунтом удалятся профиль, прогресс по урокам и все доступы к курсам. Действие нельзя отменить.
+                  </p>
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-6">
+                <button
+                  type="button"
+                  onClick={() => setUserToDelete(null)}
+                  disabled={isDeleting}
+                  className="px-4 py-2 border border-border hover:bg-card-hover rounded-xl text-sm font-medium text-foreground transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteUser(userToDelete.id)}
+                  disabled={isDeleting}
+                  className="flex items-center gap-2 px-4 py-2 bg-error hover:bg-error/90 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  Удалить
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-card border border-border rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
