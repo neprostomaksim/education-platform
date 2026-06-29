@@ -33,7 +33,7 @@ This is a Russian-language AI learning platform ("AI Learning"). The UI language
 
 - `(auth)` — `/login`, `/register`, `/callback` — Supabase OAuth callback handler
 - `(dashboard)` — `/dashboard`, `/courses/[courseId]`, `/lessons/[lessonId]`, `/prompts` — requires authenticated + approved user
-- `(admin)` — legacy admin shell (separate from the dashboard admin routes below)
+- `(admin)` — separate admin shell with content-authoring pages: `/admin` plus `/admin/lessons`, `/admin/lessons/new`, `/admin/topics`, `/admin/topics/new` (create/edit lessons and topics)
 - `/admin/users`, `/admin/courses`, `/admin/lesson-access` — admin-only pages inside `(dashboard)` group
 - `/pending` — shown to authenticated but unapproved users
 
@@ -74,11 +74,23 @@ Key tables: `profiles`, `courses`, `topics`, `lessons`, `progress`, `user_course
 - `topics` → `lessons` form the course hierarchy. Both have `sort_order`, `is_published`, `block_name` (used to group lessons in the sidebar).
 - `progress` — one row per `(user_id, lesson_id)` with `completed` boolean.
 
-SQL migrations are in `supabase/` (`001_initial_schema.sql` in `supabase/migrations/`, then numbered `002_` → `015_` at the `supabase/` root, plus `seed.sql`). Several are written to be idempotent and re-runnable.
+SQL migrations are in `supabase/` (`001_initial_schema.sql` in `supabase/migrations/`, then numbered `002_` → `017_` at the `supabase/` root, plus `seed.sql`). They are applied by hand in the Supabase SQL Editor (no CLI migration runner). Several are written to be idempotent and re-runnable. `017_lesson_images_storage.sql` creates the public `lesson-images` storage bucket.
 
 ### Admin API
 
-`POST /api/admin/users` — creates a Supabase auth user + profile. Accepts Bearer token in `Authorization` header as fallback when cookie auth fails. Requires the caller's profile to have `role = "admin"`. Uses the admin client (service role key).
+Both admin API routes authenticate via the cookie session, with a `Bearer` token in the `Authorization` header as a fallback when cookie auth fails. Both verify the caller's profile has `role = "admin"` before acting, then use the admin client (service role key).
+
+- `POST /api/admin/users` — creates a Supabase auth user + profile.
+- `POST /api/admin/upload` — accepts a multipart `file` (PNG/JPEG/WEBP/GIF, ≤10 MB), uploads it to the public `lesson-images` bucket via the service-role client (bypassing storage RLS), and returns the public URL. Used by the inline image uploader on the lesson page (admin only).
+
+### Lesson Content Rendering
+
+Lesson markdown is rendered with `react-markdown` + `remark-gfm` + `rehype-raw` + `rehype-highlight`. Two custom behaviors live in `src/components/lesson/code-block.tsx`:
+
+- **Mermaid diagrams** — a ` ```mermaid ` block is deflate-compressed with `pako` and base64url-encoded, then rendered as an `<img>` from `https://mermaid.ink/svg/pako:<payload>` (no client-side Mermaid runtime).
+- Standard code blocks get syntax highlighting and a copy button.
+
+Admins can upload and inline-resize screenshots directly inside a lesson; images are stored as markdown/HTML in the lesson content and served from the `lesson-images` bucket.
 
 ### Specialty Content System
 
