@@ -121,6 +121,8 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
   >(null);
   const [screenshotUploading, setScreenshotUploading] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [textDraft, setTextDraft] = useState<string | null>(null);
+  const [savingText, setSavingText] = useState(false);
   const contentScrollRef = useRef<HTMLDivElement>(null);
   const blockInitedRef = useRef(false);
   const screenshotInputRef = useRef<HTMLInputElement>(null);
@@ -229,6 +231,30 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
     setLesson({ ...lesson, content: newContent });
     const { error } = await supabase.from("lessons").update({ content: newContent }).eq("id", lesson.id);
     if (error) addToast("Не удалось сохранить изменения урока", "error");
+  };
+
+  // Drop any in-progress text edit when the block/lesson changes or edit mode is toggled off
+  useEffect(() => {
+    setTextDraft(null);
+  }, [safeBlock, lessonId, editMode]);
+
+  // Begin editing the raw markdown of the current view (one block when paginated, else the whole lesson)
+  const startTextEdit = () => {
+    setTextDraft(paginated ? (blocks[safeBlock]?.content ?? "") : (lesson?.content ?? ""));
+  };
+
+  // Save edited markdown back into lesson.content (replace just the edited block when paginated)
+  const saveTextEdit = async () => {
+    if (textDraft === null || !lesson) return;
+    setSavingText(true);
+    const draft = textDraft;
+    const original = paginated ? blocks[safeBlock]?.content : lesson.content;
+    const newContent =
+      paginated && original ? (lesson.content ?? "").replace(original, () => draft) : draft;
+    await persistContent(newContent);
+    setSavingText(false);
+    setTextDraft(null);
+    addToast("Текст сохранён", "success");
   };
 
   const handleScreenshotPick = (placeholder: string) => {
@@ -929,8 +955,46 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
           {/* Markdown Content */}
           {displayContent && (
             <div className="prose-dark mb-8">
-              {editing ? (
+              {editing && textDraft !== null ? (
+                <div>
+                  <textarea
+                    value={textDraft}
+                    onChange={(e) => setTextDraft(e.target.value)}
+                    spellCheck={false}
+                    className="w-full min-h-[60vh] rounded-xl bg-card border border-border p-4 font-mono text-sm text-foreground leading-relaxed focus:outline-none focus:border-accent resize-y"
+                  />
+                  <div className="flex items-center gap-2 mt-3">
+                    <button
+                      onClick={saveTextEdit}
+                      disabled={savingText}
+                      className="flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground rounded-xl text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      {savingText ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                      Сохранить текст
+                    </button>
+                    <button
+                      onClick={() => setTextDraft(null)}
+                      disabled={savingText}
+                      className="px-4 py-2 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-card-hover transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted mt-2">
+                    Формат — Markdown. Можно удалять и дописывать текст, менять заголовки, списки и таблицы.
+                  </p>
+                </div>
+              ) : editing ? (
                 <>
+                  <div className="mb-3">
+                    <button
+                      onClick={startTextEdit}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-border text-muted hover:text-foreground hover:bg-card-hover transition-colors cursor-pointer"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      {paginated ? "Редактировать текст блока" : "Редактировать текст урока"}
+                    </button>
+                  </div>
                   <InsertImageRow onClick={() => handleInsertPick(-1)} disabled={screenshotUploading} />
                   {segments.map((seg, i) => (
                     <Fragment key={i}>
