@@ -238,19 +238,36 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
     setTextDraft(null);
   }, [safeBlock, lessonId, editMode]);
 
-  // Begin editing the raw markdown of the current view (one block when paginated, else the whole lesson)
+  // Per-block editing is safe only when paginated AND there is no specialty filtering.
+  // With specialty markers the visible block comes from filtered content and is NOT a
+  // literal substring of the raw lesson.content, so a block-level splice would silently
+  // fail — in that case we edit the whole raw markdown instead.
+  const canEditBlock = paginated && !hasSpecialtyContent;
+
+  // Begin editing: one block when it's safe, otherwise the whole raw lesson markdown
   const startTextEdit = () => {
-    setTextDraft(paginated ? (blocks[safeBlock]?.content ?? "") : (lesson?.content ?? ""));
+    setTextDraft(canEditBlock ? (blocks[safeBlock]?.content ?? "") : (lesson?.content ?? ""));
   };
 
-  // Save edited markdown back into lesson.content (replace just the edited block when paginated)
+  // Save edited markdown back into lesson.content
   const saveTextEdit = async () => {
     if (textDraft === null || !lesson) return;
+    const raw = lesson.content ?? "";
+    let newContent: string;
+    if (canEditBlock) {
+      // Rebuild the body with the edited block swapped in, then splice it back into
+      // raw content. filteredContent is a single large substring of raw, so this avoids
+      // first-occurrence collisions between byte-identical blocks.
+      const rebuilt = blocks.map((b, i) => (i === safeBlock ? textDraft : b.content)).join("\n");
+      if (!raw.includes(filteredContent)) {
+        addToast("Не удалось сохранить: блок не найден в тексте урока", "error");
+        return;
+      }
+      newContent = raw.replace(filteredContent, () => rebuilt);
+    } else {
+      newContent = textDraft;
+    }
     setSavingText(true);
-    const draft = textDraft;
-    const original = paginated ? blocks[safeBlock]?.content : lesson.content;
-    const newContent =
-      paginated && original ? (lesson.content ?? "").replace(original, () => draft) : draft;
     await persistContent(newContent);
     setSavingText(false);
     setTextDraft(null);
@@ -992,7 +1009,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-border text-muted hover:text-foreground hover:bg-card-hover transition-colors cursor-pointer"
                     >
                       <Pencil className="w-3.5 h-3.5" />
-                      {paginated ? "Редактировать текст блока" : "Редактировать текст урока"}
+                      {canEditBlock ? "Редактировать текст блока" : "Редактировать текст урока"}
                     </button>
                   </div>
                   <InsertImageRow onClick={() => handleInsertPick(-1)} disabled={screenshotUploading} />

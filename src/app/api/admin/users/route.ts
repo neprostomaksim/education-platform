@@ -160,23 +160,24 @@ export async function DELETE(request: Request) {
 
     const adminClient = createAdminClient();
 
-    // 4. Guard: never delete another administrator
-    const { data: target } = await adminClient
+    // 4. Confirm the target exists and is NOT an administrator.
+    //    Refuse if we can't read the profile — never proceed on an unconfirmed role.
+    const { data: target, error: targetError } = await adminClient
       .from("profiles")
       .select("role")
       .eq("id", userId)
       .single();
 
-    if (target?.role === "admin") {
+    if (targetError || !target) {
+      return NextResponse.json({ error: "Пользователь не найден" }, { status: 404 });
+    }
+    if (target.role === "admin") {
       return NextResponse.json({ error: "Нельзя удалить администратора" }, { status: 400 });
     }
 
-    // 5. Explicitly remove the user's data (FKs also cascade, but be deterministic)
-    await adminClient.from("progress").delete().eq("user_id", userId);
-    await adminClient.from("user_lesson_access").delete().eq("user_id", userId);
-    await adminClient.from("user_courses").delete().eq("user_id", userId);
-
-    // 6. Delete the auth user — cascades the profile row via ON DELETE CASCADE
+    // 5. Delete the auth user FIRST — the profile and its child rows (progress,
+    //    user_courses, user_lesson_access) drop via ON DELETE CASCADE. If this
+    //    fails we return early, leaving the user's data untouched (no partial state).
     const { error: deleteError } = await adminClient.auth.admin.deleteUser(userId);
     if (deleteError) {
       console.error("Auth user deletion failed:", deleteError);
@@ -185,6 +186,12 @@ export async function DELETE(request: Request) {
         { status: 500 }
       );
     }
+
+    // 6. Belt-and-suspenders: clear any rows a missing cascade might have left.
+    //    No-ops when the cascade already removed them.
+    await adminClient.from("progress").delete().eq("user_id", userId);
+    await adminClient.from("user_lesson_access").delete().eq("user_id", userId);
+    await adminClient.from("user_courses").delete().eq("user_id", userId);
 
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
