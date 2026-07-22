@@ -9,8 +9,9 @@
 --   • «ИИ для аудиторов — День 1»  = Модули 1–3 + Справочник (выдаётся сразу);
 --   • «ИИ для аудиторов — День 2»  = Модули 4–5 (открывается ко второму дню).
 -- Файлы для скачивания — в /public/lesson-files/, раздаются ссылками из уроков.
--- Структура: 2 курса → 6 модулей (topics) → 12 уроков. День 1: 4 модуля (М1 с 2 уроками —
---   промпты и агенты; М2, М3, Справочник); День 2: 2 модуля (М4, М5).
+-- Структура: 2 курса → 6 модулей (topics) → 13 уроков. День 1: М1 (2 урока — промпты и
+--   агенты), М2, М3 (2 урока), Справочник (3 урока — каталог, библиотека агентов, код макросов);
+--   День 2: М4 (2 урока), М5 (3 урока).
 -- Идемпотентно (ON CONFLICT DO UPDATE). Применять в Supabase (SQL Editor).
 -- ВНИМАНИЕ: бесплатные лимиты и интерфейсы Gemini/NotebookLM меняются — перед воркшопом
 --   тестовый прогон на 1 машине в их окружении (Excel-версия, корп-политика, VPN).
@@ -440,13 +441,110 @@ $lesson$,
 
 Макрос — это маленькая программа внутри Excel. Наш макрос `Анонимизация.bas` умеет две вещи: **`Обезличить`** (заменить данные токенами) и **`ВернутьДанные`** (вернуть оригиналы обратно). Скачайте макрос и учебный файл внизу урока и повторяйте по шагам.
 
-**Шаг 1. Загрузите макрос в Excel (один раз).**
-1. Откройте в Excel файл, который надо обезличить.
-2. Нажмите **`Alt+F11`** — откроется редактор макросов (Visual Basic).
-3. В меню сверху: **File → Import File…** и выберите скачанный `Анонимизация.bas`.
-4. Закройте редактор (крестик) — вы вернётесь в таблицу.
+**Шаг 1. Добавьте макрос в Excel (один раз).** Два способа — выберите любой:
 
-`[СКРИН: редактор VBA (Alt+F11) с импортированным модулем Анонимизация]`
+**Способ А — вставить текстом (проще):**
+1. Откройте Excel-файл → **`Alt+F11`** (редактор Visual Basic).
+2. Меню **Insert → Module** — создастся пустой модуль.
+3. Скопируйте код ниже (кнопка копирования в углу блока) и **вставьте** в модуль.
+4. Закройте редактор — вернётесь в таблицу.
+
+**Способ Б — импортировать файл:** `Alt+F11` → **File → Import File…** → выберите скачанный `Анонимизация.bas`.
+
+`[СКРИН: редактор VBA (Alt+F11) с модулем Анонимизация]`
+
+Код макроса «Анонимизация» (для вставки текстом):
+
+```
+'==========================================================================
+'  ОБЕЗЛИЧИВАНИЕ ДАННЫХ  (М1)
+'  Обезличить — значения выделенного диапазона -> токены, карта на лист «Карта_замен».
+'  ВернутьДанные — токены обратно в оригиналы (напр. в ответе нейросети).
+'  ⚠️ Лист «Карта_замен» в нейросеть НЕ загружать.
+'==========================================================================
+Option Explicit
+
+Sub Обезличить()
+    Dim rng As Range, cell As Range, mapSheet As Worksheet
+    Dim dict As Object, prefix As String, token As String
+    Dim counter As Long, lastMapRow As Long, val As String
+
+    If TypeName(Selection) <> "Range" Then
+        MsgBox "Выделите диапазон ячеек для обезличивания.", vbExclamation: Exit Sub
+    End If
+    Set rng = Selection
+
+    prefix = InputBox("Префикс токена (напр. КОМПАНИЯ, ФИО, СЧЁТ):", "Обезличивание", "ОБ")
+    If prefix = "" Then Exit Sub
+
+    Set dict = CreateObject("Scripting.Dictionary")
+    Set mapSheet = ПолучитьЛистКарты()
+    lastMapRow = mapSheet.Cells(mapSheet.Rows.Count, 1).End(xlUp).Row
+    counter = 1
+
+    For Each cell In rng.Cells
+        val = Trim(CStr(cell.Value))
+        If val <> "" Then
+            If Not dict.Exists(val) Then
+                token = prefix & "_" & Format(counter, "000")
+                dict.Add val, token
+                counter = counter + 1
+                lastMapRow = lastMapRow + 1
+                mapSheet.Cells(lastMapRow, 1).Value = token
+                mapSheet.Cells(lastMapRow, 2).Value = val
+            End If
+            cell.Value = dict(val)
+        End If
+    Next cell
+
+    MsgBox "Обезличено уникальных значений: " & dict.Count & vbCrLf & _
+           "Карта — на листе «Карта_замен». НЕ загружайте её в нейросеть!", vbInformation
+End Sub
+
+Sub ВернутьДанные()
+    Dim rng As Range, cell As Range, mapSheet As Worksheet
+    Dim dict As Object, i As Long, lastRow As Long, key As Variant
+
+    If TypeName(Selection) <> "Range" Then
+        MsgBox "Выделите диапазон с токенами.", vbExclamation: Exit Sub
+    End If
+    Set rng = Selection
+
+    On Error Resume Next
+    Set mapSheet = ThisWorkbook.Worksheets("Карта_замен")
+    On Error GoTo 0
+    If mapSheet Is Nothing Then MsgBox "Лист «Карта_замен» не найден.", vbExclamation: Exit Sub
+
+    Set dict = CreateObject("Scripting.Dictionary")
+    lastRow = mapSheet.Cells(mapSheet.Rows.Count, 1).End(xlUp).Row
+    For i = 2 To lastRow
+        dict(CStr(mapSheet.Cells(i, 1).Value)) = mapSheet.Cells(i, 2).Value
+    Next i
+
+    For Each cell In rng.Cells
+        For Each key In dict.Keys
+            If InStr(1, CStr(cell.Value), key) > 0 Then
+                cell.Value = Replace(CStr(cell.Value), key, dict(key))
+            End If
+        Next key
+    Next cell
+
+    MsgBox "Данные возвращены по карте замен.", vbInformation
+End Sub
+
+Private Function ПолучитьЛистКарты() As Worksheet
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("Карта_замен")
+    On Error GoTo 0
+    If ws Is Nothing Then
+        Set ws = ThisWorkbook.Worksheets.Add
+        ws.Name = "Карта_замен"
+        ws.Cells(1, 1).Value = "Токен": ws.Cells(1, 2).Value = "Оригинал"
+    End If
+    Set ПолучитьЛистКарты = ws
+End Function
+```
 
 **Шаг 2. Обезличьте данные.**
 1. **Выделите мышкой диапазон** ячеек с чувствительными данными (названия, УНП, ФИО, суммы).
@@ -590,9 +688,10 @@ $lesson$,
 - **Контроль качества:** блок «⚠️ Требует проверки» подсказывает, что смотреть глазами.
 - **Граница:** ИИ готовит черновик — аудитор проверяет и подписывает.
 
-### 🛠 Практика (управленческая, без сборки)
+### 🛠 Практика
 
-**🎯 База:** посмотрите демо обоих агентов на экране; отметьте, где в вашей фирме это сэкономит больше всего времени.
+**🎯 База (обзор):** отметьте, где в вашей фирме эти два агента сэкономят больше всего времени. На занятии это показывается на экране.
+**🧑‍💻 Попробуйте сами (для самостоятельного прохождения):** соберите любого из двух агентов как Gem (шаги — в уроке «ИИ-агенты»): создайте новый Gem, вставьте промпт выше, назовите и сохраните. Подайте свой **обезличенный** договор (или короткий черновик замечания). Обратите внимание, как агент помечает «не указано», «проверить вручную» и плашку НПА — то есть **не выдумывает**.
 **🚀 Уровень 2:** прикиньте, какой участок команды первым переведёте на такой агент и какой риск при этом надо контролировать.
 > 🤔 **Перенос:** «список колонок = ТЗ агенту» — какие ещё документы фирмы так же раскладываются в таблицу?
 
@@ -663,11 +762,11 @@ $lesson$,
 - **JET** переносит рутинную арифметику на макрос, а человека оставляет на суждении.
 - **Общая логика проверок:** арифметику — машине, суждение — человеку, итог — аудитору.
 
-### 🛠 Практика (управленческая)
+### 🛠 Практика
 
-**🎯 База:** посмотрите демо провокации в NotebookLM («чего в документе нет») — убедитесь, что инструмент честно говорит «не найдено».
-**🚀 Уровень 2:** прикиньте, какие документы фирмы (учётная политика, регламенты, НПА) стоит первыми завести в NotebookLM для команды.
-> 🤔 **Перенос:** где ещё в работе граница «арифметику — машине, суждение — человеку» проходит так же чётко, как в JET?
+**🧑‍💻 NotebookLM — сделайте сами (по шагам):** зайдите на **notebooklm.google.com** → **New Notebook** → **Add source** и загрузите любой ваш документ (регламент, положение, НПА). Задайте по нему вопрос, а затем спросите то, чего в документе **точно нет**. Убедитесь: инструмент отвечает «не найдено», а не выдумывает. (На занятии это же показывается на экране.)
+**🚀 JET — по желанию:** скачайте JET-макрос и учебный файл внизу, добавьте макрос (текстом или файлом — см. урок «Код макросов») → запустите `ПрогнатьВсеТесты` → посмотрите лист «Флаги». Это операционный инструмент; руководителю достаточно понимать, что он делает.
+> 🤔 **Перенос:** какие документы фирмы стоит первыми завести в NotebookLM для команды? И где ещё граница «арифметику — машине, суждение — человеку» проходит так же чётко, как в JET?
 
 ## Что важно запомнить
 
@@ -1136,7 +1235,7 @@ $lesson$,
 
 ## Операционные макросы команды (обзор)
 
-Эти макросы — рутина исполнителя; руководителю важно знать, что они есть и что делают. Запуск одинаков: открыть учебный файл → `Alt+F11` → Import File → выбрать `.bas` → `Alt+F8` → выбрать процедуру → Run.
+Эти макросы — рутина исполнителя; руководителю важно знать, что они есть и что делают. Добавляются одинаково: `Alt+F11` → **вставить код текстом** (Insert → Module) **или** импортировать файл (File → Import File → `.bas`) → `Alt+F8` → выбрать процедуру → Run. **Готовый код всех макросов для копирования — в уроке «Код макросов» (ниже в Справочнике).**
 
 | Макрос | Что делает | Запуск |
 |---|---|---|
@@ -1454,7 +1553,862 @@ $lesson$,
 - 🧩 Каждый — Gem за минуту; начните с 2–3 под ближайшие задачи.
 - 🔒 **Те же правила безопасности и доверия**, что и во всём курсе.
 $lesson$,
- 11, 0, true, NULL)
+ 11, 0, true, NULL),
+
+-- =========================================================================
+-- УРОК 13 — Справочник: код макросов (копируемый текст)
+-- =========================================================================
+('ff0e8400-e29b-41d4-a716-446655440013',
+ 'ee0e8400-e29b-41d4-a716-446655440006',
+ 'Код макросов (копируй и вставляй)',
+ $lesson$
+*Здесь — исходный код всех макросов команды, чтобы их можно было **скопировать текстом** и вставить в Excel без поиска файлов. Это те же макросы, что мы используем в обучении (обезличивание, JET) и в операционной работе (сверки, выборка).*
+
+## Как вставить макрос текстом (один раз на файл)
+
+1. Откройте нужный Excel-файл.
+2. Нажмите **`Alt+F11`** — откроется редактор Visual Basic.
+3. Меню **Insert → Module** — создастся пустой модуль.
+4. **Скопируйте код** нужного макроса ниже (кнопка копирования в углу блока) и **вставьте** в модуль.
+5. Закройте редактор → **`Alt+F8`** → выберите процедуру (например `ПрогнатьВсеТесты`) → **«Выполнить»**.
+
+> 💡 Вставка **текстом** и импорт **файлом** (`.bas`, File → Import File) дают одинаковый результат. Файлы `.bas` для скачивания — в уроке-каталоге Справочника.
+> 🖥 Все макросы — для **Excel на Windows**. Работать только на **обезличенных/учебных** данных.
+
+
+## Обезличивание (`Обезличить` / `ВернутьДанные`)
+
+```
+'==========================================================================
+'  ОБЕЗЛИЧИВАНИЕ ДАННЫХ  (М1)
+'  Обезличить — значения выделенного диапазона -> токены, карта на лист «Карта_замен».
+'  ВернутьДанные — токены обратно в оригиналы (напр. в ответе нейросети).
+'  ⚠️ Лист «Карта_замен» в нейросеть НЕ загружать.
+'==========================================================================
+Option Explicit
+
+Sub Обезличить()
+    Dim rng As Range, cell As Range, mapSheet As Worksheet
+    Dim dict As Object, prefix As String, token As String
+    Dim counter As Long, lastMapRow As Long, val As String
+
+    If TypeName(Selection) <> "Range" Then
+        MsgBox "Выделите диапазон ячеек для обезличивания.", vbExclamation: Exit Sub
+    End If
+    Set rng = Selection
+
+    prefix = InputBox("Префикс токена (напр. КОМПАНИЯ, ФИО, СЧЁТ):", "Обезличивание", "ОБ")
+    If prefix = "" Then Exit Sub
+
+    Set dict = CreateObject("Scripting.Dictionary")
+    Set mapSheet = ПолучитьЛистКарты()
+    lastMapRow = mapSheet.Cells(mapSheet.Rows.Count, 1).End(xlUp).Row
+    counter = 1
+
+    For Each cell In rng.Cells
+        val = Trim(CStr(cell.Value))
+        If val <> "" Then
+            If Not dict.Exists(val) Then
+                token = prefix & "_" & Format(counter, "000")
+                dict.Add val, token
+                counter = counter + 1
+                lastMapRow = lastMapRow + 1
+                mapSheet.Cells(lastMapRow, 1).Value = token
+                mapSheet.Cells(lastMapRow, 2).Value = val
+            End If
+            cell.Value = dict(val)
+        End If
+    Next cell
+
+    MsgBox "Обезличено уникальных значений: " & dict.Count & vbCrLf & _
+           "Карта — на листе «Карта_замен». НЕ загружайте её в нейросеть!", vbInformation
+End Sub
+
+Sub ВернутьДанные()
+    Dim rng As Range, cell As Range, mapSheet As Worksheet
+    Dim dict As Object, i As Long, lastRow As Long, key As Variant
+
+    If TypeName(Selection) <> "Range" Then
+        MsgBox "Выделите диапазон с токенами.", vbExclamation: Exit Sub
+    End If
+    Set rng = Selection
+
+    On Error Resume Next
+    Set mapSheet = ThisWorkbook.Worksheets("Карта_замен")
+    On Error GoTo 0
+    If mapSheet Is Nothing Then MsgBox "Лист «Карта_замен» не найден.", vbExclamation: Exit Sub
+
+    Set dict = CreateObject("Scripting.Dictionary")
+    lastRow = mapSheet.Cells(mapSheet.Rows.Count, 1).End(xlUp).Row
+    For i = 2 To lastRow
+        dict(CStr(mapSheet.Cells(i, 1).Value)) = mapSheet.Cells(i, 2).Value
+    Next i
+
+    For Each cell In rng.Cells
+        For Each key In dict.Keys
+            If InStr(1, CStr(cell.Value), key) > 0 Then
+                cell.Value = Replace(CStr(cell.Value), key, dict(key))
+            End If
+        Next key
+    Next cell
+
+    MsgBox "Данные возвращены по карте замен.", vbInformation
+End Sub
+
+Private Function ПолучитьЛистКарты() As Worksheet
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("Карта_замен")
+    On Error GoTo 0
+    If ws Is Nothing Then
+        Set ws = ThisWorkbook.Worksheets.Add
+        ws.Name = "Карта_замен"
+        ws.Cells(1, 1).Value = "Токен": ws.Cells(1, 2).Value = "Оригинал"
+    End If
+    Set ПолучитьЛистКарты = ws
+End Function
+```
+
+## Сверка ОСВ (`ОСВ_Проверка`)
+
+```
+'==========================================================================
+'  АРИФМЕТИЧЕСКАЯ СВЕРКА ОСВ  (полка «бери и пользуйся»)
+'  Лист «ОСВ»: A Код | B Наименование | D/E сальдо начало Дт/Кт |
+'              F/G оборот Дт/Кт | H/I сальдо конец Дт/Кт.
+'  Ловит: разбаланс строки, несведение баланса по синтетическим,
+'         пустые строки, развёрнутое сальдо. (Транзит НЕ ловим — это шум.)
+'  Запуск: Alt+F8 -> ОСВ_Проверка.
+'==========================================================================
+Option Explicit
+Private Const ДОПУСК As Double = 0.01   ' копеечная погрешность округления
+
+Public Sub ОСВ_Проверка()
+    Dim s As Worksheet: Set s = Worksheets("ОСВ")
+    Dim hdr As Long, lastR As Long, r As Long
+    lastR = s.Cells(s.Rows.Count, 1).End(xlUp).Row
+    For r = 1 To lastR
+        If Trim(CStr(s.Cells(r, 1).Value)) = "Код" Then hdr = r: Exit For
+    Next r
+    If hdr = 0 Then MsgBox "Не найдена шапка (ячейка «Код»).", vbCritical: Exit Sub
+
+    Dim f As Worksheet: Set f = ПересоздатьЛист("ОСВ_флаги")
+    f.Range("A1:E1").Value = Array("Код", "Наименование", "Тип", "Комментарий", "Расхождение")
+    Dim fr As Long: fr = 2
+    Dim синтБаланс As Double: синтБаланс = 0
+    Dim штук As Long
+
+    For r = hdr + 1 To lastR
+        Dim code As String: code = Trim(CStr(s.Cells(r, 1).Value))
+        If code <> "" Then
+            штук = штук + 1
+            Dim nn As Double, no As Double, nk As Double
+            nn = Netto(s, r, 4, 5): no = Netto(s, r, 6, 7): nk = Netto(s, r, 8, 9)
+
+            ' пустая строка
+            If nn = 0 And no = 0 And nk = 0 Then
+                ЗаписатьФлаг f, fr, s, r, "Пустая строка", "Ни сальдо, ни оборотов", 0
+                fr = fr + 1
+            Else
+                ' разбаланс: конец должен = начало + оборот
+                Dim diff As Double: diff = nk - (nn + no)
+                If Abs(diff) > ДОПУСК Then
+                    ЗаписатьФлаг f, fr, s, r, "Разбаланс строки", _
+                        "Конец <> Начало + Оборот", diff: fr = fr + 1
+                End If
+                ' развёрнутое сальдо на конец (и Дт, и Кт одновременно)
+                If Znz(s.Cells(r, 8).Value) <> 0 And Znz(s.Cells(r, 9).Value) <> 0 Then
+                    ЗаписатьФлаг f, fr, s, r, "Развёрнутое сальдо", _
+                        "Сальдо конец и по Дт, и по Кт", 0: fr = fr + 1
+                End If
+            End If
+
+            ' баланс считаем ТОЛЬКО по синтетическим (код без точки)
+            If InStr(code, ".") = 0 Then синтБаланс = синтБаланс + nk
+        End If
+    Next r
+
+    ' контрольная строка: баланс должен сходиться в ноль
+    If Abs(синтБаланс) > ДОПУСК Then
+        f.Cells(fr, 1).Value = "—"
+        f.Cells(fr, 3).Value = "Баланс не сходится"
+        f.Cells(fr, 4).Value = "Σ сальдо конец по синтетическим счетам <> 0"
+        f.Cells(fr, 5).Value = синтБаланс
+        fr = fr + 1
+    End If
+
+    ' оформление
+    With f.Range("A1:E1")
+        .Font.Bold = True: .Font.Color = vbWhite: .Interior.Color = RGB(79, 45, 127)
+    End With
+    f.Columns.AutoFit
+    On Error Resume Next
+    f.Rows("1:1").AutoFilter
+    On Error GoTo 0
+    f.Activate
+    MsgBox "Проверено счетов: " & штук & vbCrLf & "Флагов: " & (fr - 2) & vbCrLf & _
+           "Баланс синтетических: " & Format(синтБаланс, "# ##0.00") & _
+           IIf(Abs(синтБаланс) > ДОПУСК, " — НЕ сходится!", " — ок"), vbInformation
+End Sub
+
+Private Function Netto(s As Worksheet, r As Long, cD As Long, cK As Long) As Double
+    Netto = Znz(s.Cells(r, cD).Value) - Znz(s.Cells(r, cK).Value)
+End Function
+
+Private Function Znz(v As Variant) As Double
+    If IsNumeric(v) Then Znz = CDbl(v) Else Znz = 0
+End Function
+
+Private Sub ЗаписатьФлаг(f As Worksheet, fr As Long, s As Worksheet, r As Long, _
+                        тип As String, комм As String, расх As Double)
+    f.Cells(fr, 1).Value = s.Cells(r, 1).Value
+    f.Cells(fr, 2).Value = s.Cells(r, 2).Value
+    f.Cells(fr, 3).Value = тип
+    f.Cells(fr, 4).Value = комм
+    If расх <> 0 Then f.Cells(fr, 5).Value = расх
+End Sub
+
+Private Function ПересоздатьЛист(имя As String) As Worksheet
+    Application.DisplayAlerts = False
+    On Error Resume Next
+    Worksheets(имя).Delete
+    On Error GoTo 0
+    Application.DisplayAlerts = True
+    Dim ws As Worksheet: Set ws = Worksheets.Add: ws.Name = имя
+    Set ПересоздатьЛист = ws
+End Function
+```
+
+## Сверка двух списков (`Сверка_Списков`)
+
+```
+'==========================================================================
+'  СВЕРКА ДВУХ СПИСКОВ  (наш учёт <-> акт сверки контрагента)
+'  Листы «Наш_учет» и «Контрагент», формат: A Контрагент | B Документ(ключ) | C Сумма.
+'  Ключ сопоставления — колонка B (номер документа).
+'  Показывает: расхождение суммы, есть у нас/нет у них, есть у них/нет у нас.
+'  Запуск: Alt+F8 -> Сверка_Списков.
+'==========================================================================
+Option Explicit
+Private Const ДОПУСК As Double = 0.01   ' порог расхождения (правьте под задачу, напр. 1 руб.)
+
+Public Sub Сверка_Списков()
+    Dim ours As Object, theirs As Object
+    Set ours = ЗагрузитьСписок("Наш_учет")
+    Set theirs = ЗагрузитьСписок("Контрагент")
+    If ours Is Nothing Or theirs Is Nothing Then Exit Sub
+
+    Dim f As Worksheet: Set f = ПересоздатьЛист("Результат_сверки")
+    f.Range("A1:F1").Value = Array("Документ", "Контрагент", "Тип", "Сумма у нас", "Сумма у них", "Расхождение")
+    Dim fr As Long: fr = 2
+    Dim совп As Long, расх As Long, нетУНих As Long, нетУНас As Long
+
+    ' объединяем ключи
+    Dim keys As Object: Set keys = CreateObject("Scripting.Dictionary")
+    Dim k As Variant
+    For Each k In ours.keys: keys(k) = True: Next k
+    For Each k In theirs.keys: keys(k) = True: Next k
+
+    For Each k In keys.keys
+        Dim inO As Boolean, inT As Boolean
+        inO = ours.Exists(k): inT = theirs.Exists(k)
+        If inO And inT Then
+            Dim sO As Double, sT As Double
+            sO = ours(k)(1): sT = theirs(k)(1)
+            If Abs(sO - sT) > ДОПУСК Then
+                f.Cells(fr, 1).Value = k: f.Cells(fr, 2).Value = ours(k)(0)
+                f.Cells(fr, 3).Value = "Расхождение суммы"
+                f.Cells(fr, 4).Value = sO: f.Cells(fr, 5).Value = sT
+                f.Cells(fr, 6).Value = sO - sT: fr = fr + 1: расх = расх + 1
+            Else
+                совп = совп + 1
+            End If
+        ElseIf inO Then
+            f.Cells(fr, 1).Value = k: f.Cells(fr, 2).Value = ours(k)(0)
+            f.Cells(fr, 3).Value = "Есть у нас, нет у контрагента"
+            f.Cells(fr, 4).Value = ours(k)(1): fr = fr + 1: нетУНих = нетУНих + 1
+        Else
+            f.Cells(fr, 1).Value = k: f.Cells(fr, 2).Value = theirs(k)(0)
+            f.Cells(fr, 3).Value = "Есть у контрагента, нет у нас"
+            f.Cells(fr, 5).Value = theirs(k)(1): fr = fr + 1: нетУНас = нетУНас + 1
+        End If
+    Next k
+
+    With f.Range("A1:F1")
+        .Font.Bold = True: .Font.Color = vbWhite: .Interior.Color = RGB(79, 45, 127)
+    End With
+    f.Columns.AutoFit
+    On Error Resume Next
+    f.Rows("1:1").AutoFilter
+    On Error GoTo 0
+    f.Activate
+    MsgBox "Совпало: " & совп & vbCrLf & "Расхождений суммы: " & расх & vbCrLf & _
+           "Есть у нас, нет у них: " & нетУНих & vbCrLf & _
+           "Есть у них, нет у нас: " & нетУНас, vbInformation, "Результат сверки"
+End Sub
+
+Private Function ЗагрузитьСписок(имяЛиста As String) As Object
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = Worksheets(имяЛиста)
+    On Error GoTo 0
+    If ws Is Nothing Then MsgBox "Не найден лист «" & имяЛиста & "».", vbCritical: Exit Function
+    Dim d As Object: Set d = CreateObject("Scripting.Dictionary")
+    Dim last As Long, r As Long
+    last = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
+    For r = 2 To last
+        Dim key As String: key = Trim(CStr(ws.Cells(r, 2).Value))
+        If key <> "" Then
+            Dim sum As Double: sum = 0
+            If IsNumeric(ws.Cells(r, 3).Value) Then sum = CDbl(ws.Cells(r, 3).Value)
+            ' если ключ повторяется — суммируем
+            If d.Exists(key) Then
+                d(key) = Array(ws.Cells(r, 1).Value, d(key)(1) + sum)
+            Else
+                d(key) = Array(ws.Cells(r, 1).Value, sum)
+            End If
+        End If
+    Next r
+    Set ЗагрузитьСписок = d
+End Function
+
+Private Function ПересоздатьЛист(имя As String) As Worksheet
+    Application.DisplayAlerts = False
+    On Error Resume Next
+    Worksheets(имя).Delete
+    On Error GoTo 0
+    Application.DisplayAlerts = True
+    Dim ws As Worksheet: Set ws = Worksheets.Add: ws.Name = имя
+    Set ПересоздатьЛист = ws
+End Function
+```
+
+## Аудиторская выборка (`Выборка`)
+
+```
+'==========================================================================
+'  АУДИТОРСКАЯ ВЫБОРКА из совокупности
+'  Лист «Совокупность»: A № | B Документ | C Контрагент | D Сумма.
+'  Три метода: 1) сплошь выше порога; 2) случайная N из остатка;
+'              3) монетарная (MUS, систематическая по сумме — крупные вероятнее).
+'  Запуск: Alt+F8 -> Выборка.
+'==========================================================================
+Option Explicit
+Private Const КОЛ_СУММА As Long = 4   ' колонка с суммой
+
+Public Sub Выборка()
+    Dim s As Worksheet: Set s = Worksheets("Совокупность")
+    Dim last As Long: last = s.Cells(s.Rows.Count, 1).End(xlUp).Row
+    If last < 2 Then MsgBox "Совокупность пуста.", vbExclamation: Exit Sub
+
+    Dim метод As String
+    метод = InputBox("Метод выборки:" & vbCrLf & _
+        "1 — сплошь выше порога (существенные)" & vbCrLf & _
+        "2 — случайная N из остатка" & vbCrLf & _
+        "3 — монетарная MUS (n элементов)", "Аудиторская выборка", "1")
+    If метод = "" Then Exit Sub
+
+    Dim f As Worksheet: Set f = ПересоздатьЛист("Выборка_результат")
+    f.Range("A1:E1").Value = Array("№", "Документ", "Контрагент", "Сумма", "Метод отбора")
+    Dim fr As Long, r As Long: fr = 2
+
+    Select Case Trim(метод)
+    Case "1"
+        Dim порог As Double: порог = CDbl(Val(InputBox("Порог существенности (руб.):", , "100000")))
+        For r = 2 To last
+            If Abs(Znz(s.Cells(r, КОЛ_СУММА).Value)) >= порог Then Копия s, r, f, fr, "Сплошь > порога": fr = fr + 1
+        Next r
+
+    Case "2"
+        Dim порог2 As Double: порог2 = CDbl(Val(InputBox("Отбираем из позиций НИЖЕ порога (руб.):", , "100000")))
+        Dim n As Long: n = CLng(Val(InputBox("Сколько отобрать (N):", , "10")))
+        ' собираем индексы остатка
+        Dim idx() As Long, cnt As Long: ReDim idx(1 To last): cnt = 0
+        For r = 2 To last
+            If Abs(Znz(s.Cells(r, КОЛ_СУММА).Value)) < порог2 Then cnt = cnt + 1: idx(cnt) = r
+        Next r
+        If n > cnt Then n = cnt
+        Randomize
+        ' перемешиваем первые cnt и берём n (Fisher-Yates)
+        Dim i As Long, j As Long, tmp As Long
+        For i = cnt To 2 Step -1
+            j = Int(Rnd * i) + 1
+            tmp = idx(i): idx(i) = idx(j): idx(j) = tmp
+        Next i
+        For i = 1 To n
+            Копия s, idx(i), f, fr, "Случайная": fr = fr + 1
+        Next i
+
+    Case "3"
+        Dim nm As Long: nm = CLng(Val(InputBox("Сколько элементов отобрать (n):", , "12")))
+        Dim total As Double: total = 0
+        For r = 2 To last: total = total + Abs(Znz(s.Cells(r, КОЛ_СУММА).Value)): Next r
+        If total <= 0 Or nm <= 0 Then MsgBox "Нет сумм для MUS.", vbExclamation: Exit Sub
+        Dim interval As Double: interval = total / nm
+        Randomize
+        Dim target As Double: target = Rnd * interval
+        Dim cum As Double: cum = 0
+        For r = 2 To last
+            cum = cum + Abs(Znz(s.Cells(r, КОЛ_СУММА).Value))
+            Do While target <= cum And (fr - 2) < nm
+                Копия s, r, f, fr, "MUS (монетарная)": fr = fr + 1
+                target = target + interval
+            Loop
+        Next r
+
+    Case Else
+        MsgBox "Неизвестный метод. Введите 1, 2 или 3.", vbExclamation: Exit Sub
+    End Select
+
+    With f.Range("A1:E1")
+        .Font.Bold = True: .Font.Color = vbWhite: .Interior.Color = RGB(79, 45, 127)
+    End With
+    f.Columns.AutoFit
+    On Error Resume Next
+    f.Rows("1:1").AutoFilter
+    On Error GoTo 0
+    f.Activate
+    MsgBox "Отобрано элементов: " & (fr - 2), vbInformation, "Выборка готова"
+End Sub
+
+Private Sub Копия(s As Worksheet, r As Long, f As Worksheet, fr As Long, метод As String)
+    f.Cells(fr, 1).Value = s.Cells(r, 1).Value
+    f.Cells(fr, 2).Value = s.Cells(r, 2).Value
+    f.Cells(fr, 3).Value = s.Cells(r, 3).Value
+    f.Cells(fr, 4).Value = s.Cells(r, КОЛ_СУММА).Value
+    f.Cells(fr, 5).Value = метод
+End Sub
+
+Private Function Znz(v As Variant) As Double
+    If IsNumeric(v) Then Znz = CDbl(v) Else Znz = 0
+End Function
+
+Private Function ПересоздатьЛист(имя As String) As Worksheet
+    Application.DisplayAlerts = False
+    On Error Resume Next
+    Worksheets(имя).Delete
+    On Error GoTo 0
+    Application.DisplayAlerts = True
+    Dim ws As Worksheet: Set ws = Worksheets.Add: ws.Name = имя
+    Set ПересоздатьЛист = ws
+End Function
+```
+
+## JET: тесты проводок (`ПрогнатьВсеТесты`)
+
+```
+'==========================================================================
+'  JET — МЕХАНИЧЕСКИЕ ТЕСТЫ ЖУРНАЛЬНЫХ ПРОВОДОК  (воркшоп «ИИ для аудиторов»)
+'--------------------------------------------------------------------------
+'  1) "схлопывает" грязную многострочную выгрузку 1С (лист «Проводки»)
+'     в чистую таблицу «JET_данные» — одна строка = одна проводка;
+'  2) гоняет 11 арифметических тестов (1,3,4,5,6,7,9,10,11,13) + Бенфорд (12);
+'  3) пишет все срабатывания на лист «Флаги».
+'
+'  Тесты 2 (нетипичные) и 8 (подозрительные описания) — работа АГЕНТА.
+'
+'  ДВА СПОСОБА ЗАПУСКА:
+'    • ПрогнатьВсеТесты — один прогон, всё на лист «Флаги» (главная кнопка).
+'    • Любой ТестNN можно повесить на отдельную кнопку — он самодостаточен.
+'==========================================================================
+Option Explicit
+
+Private Const SH_ДАННЫЕ As String = "Проводки"
+Private Const SH_ЧИСТО  As String = "JET_данные"
+Private Const SH_ФЛАГИ  As String = "Флаги"
+Private Const SH_НАСТР  As String = "JET_настройки"
+Private Const SH_БЕНФ   As String = "JET_Бенфорд"
+
+Private Const cНОМ = 1, cСТРОКА = 2, cДАТАТ = 3, cДАТА = 4, cДОК = 5
+Private Const cСОДЕРЖ = 6, cДТ = 7, cКТ = 8, cСУММА = 9
+Private Const cСУБДТ = 10, cСУБКТ = 11, cПЕРВИЧКА = 12, cЖУРН = 13
+
+Private flagRow As Long
+Private мастерРежим As Boolean   ' True, когда тесты идут из ПрогнатьВсеТесты
+
+'==========================================================================
+'  МАСТЕР
+'==========================================================================
+Public Sub ПрогнатьВсеТесты()
+    Dim t As Double: t = Timer
+    Application.ScreenUpdating = False
+    мастерРежим = True
+    ПодготовитьДанные
+    ОчиститьИШапка
+
+    Тест01_Полнота
+    Тест03_Выходные
+    Тест04_КруглыеИ999
+    Тест05_КрупныеСуммы
+    Тест06_ПовторСумм
+    Тест07_ДтРавноКт
+    Тест09_РедкиеПары
+    Тест10_Сторно
+    Тест11_БезОписания
+    Тест13_БезСумм
+    Тест12_Бенфорд
+
+    ОформитьФлаги
+    мастерРежим = False
+    Application.ScreenUpdating = True
+    MsgBox "Готово. Срабатываний: " & (flagRow - 2) & vbCrLf & _
+           "Смотри лист «Флаги» (и «JET_Бенфорд»)." & vbCrLf & _
+           "Тесты 2 и 8 — за агентом, не за макросом.", vbInformation, _
+           Format(Timer - t, "0.0") & " сек"
+End Sub
+
+'==========================================================================
+'  НОРМАЛИЗАЦИЯ выгрузки 1С -> одна строка на проводку
+'==========================================================================
+Public Sub ПодготовитьДанные()
+    Dim src As Worksheet, dst As Worksheet
+    Set src = Worksheets(SH_ДАННЫЕ)
+    Set dst = ПересоздатьЛист(SH_ЧИСТО)
+
+    Dim h, i As Long
+    h = Array("№", "Стр.1С", "Дата", "ДатаЗнач", "Документ", "Содержание", _
+              "Дт", "Кт", "Сумма", "Субконто Дт", "Субконто Кт", "Первичка", "Журнал")
+    For i = 0 To UBound(h): dst.Cells(1, i + 1).Value = h(i): Next i
+
+    Dim hdr As Long, lastR As Long
+    lastR = src.Cells(src.Rows.Count, 1).End(xlUp).Row
+    For i = 1 To lastR
+        If Trim(CStr(src.Cells(i, 1).Value)) = "Дата" Then hdr = i: Exit For
+    Next i
+    If hdr = 0 Then MsgBox "Не найдена шапка с колонкой «Дата».", vbCritical: End
+
+    Dim r As Long, outR As Long, num As Long, prevOut As Long
+    outR = 2: num = 0: prevOut = 0
+    For r = hdr + 1 To lastR
+        Dim dCell As String: dCell = Trim(CStr(src.Cells(r, 1).Value))
+        If dCell <> "" Then
+            num = num + 1
+            dst.Cells(outR, cНОМ).Value = num
+            dst.Cells(outR, cСТРОКА).Value = r
+            dst.Cells(outR, cДАТАТ).Value = dCell
+            dst.Cells(outR, cДАТА).Value = ПарсДату(dCell)
+            dst.Cells(outR, cДОК).Value = src.Cells(r, 2).Value
+            dst.Cells(outR, cСОДЕРЖ).Value = src.Cells(r, 3).Value
+            dst.Cells(outR, cДТ).Value = Trim(CStr(src.Cells(r, 4).Value))
+            dst.Cells(outR, cКТ).Value = Trim(CStr(src.Cells(r, 6).Value))
+            If IsNumeric(src.Cells(r, 8).Value) And src.Cells(r, 8).Value <> "" Then _
+                dst.Cells(outR, cСУММА).Value = src.Cells(r, 8).Value
+            dst.Cells(outR, cСУБДТ).Value = src.Cells(r, 9).Value
+            dst.Cells(outR, cСУБКТ).Value = src.Cells(r, 10).Value
+            dst.Cells(outR, cЖУРН).Value = src.Cells(r, 11).Value
+            prevOut = outR
+            outR = outR + 1
+        ElseIf prevOut > 0 Then
+            Dim extra As String: extra = Trim(CStr(src.Cells(r, 9).Value))
+            If extra <> "" Then dst.Cells(prevOut, cПЕРВИЧКА).Value = _
+                Trim(dst.Cells(prevOut, cПЕРВИЧКА).Value & " | " & extra)
+        End If
+    Next r
+    dst.Columns.AutoFit
+End Sub
+
+'==========================================================================
+'  ТЕСТЫ
+'==========================================================================
+Public Sub Тест01_Полнота()
+    Dim d As Worksheet: Set d = Старт(): Dim r As Long, n As Long: n = ПоследняяСтрока(d)
+    Dim итог As Double
+    For r = 2 To n
+        Dim p As String: p = ""
+        If Trim(d.Cells(r, cДТ).Value) = "" Then p = p & "нет Дт; "
+        If Trim(d.Cells(r, cКТ).Value) = "" Then p = p & "нет Кт; "
+        If Not IsDate(d.Cells(r, cДАТА).Value) Then p = p & "не распознана дата; "
+        If p <> "" Then ЗаписатьФлаг d, r, "1. Полнота", p
+        If IsNumeric(d.Cells(r, cСУММА).Value) Then итог = итог + d.Cells(r, cСУММА).Value
+    Next r
+    ЗаписатьФлаг d, 1, "1. Полнота (контроль)", "Всего проводок: " & (n - 1) & _
+        "; сумма по столбцу: " & Format(итог, "# ##0.00")
+    Финиш
+End Sub
+
+Public Sub Тест03_Выходные()
+    Dim d As Worksheet: Set d = Старт(): Dim r As Long, n As Long: n = ПоследняяСтрока(d)
+    Dim празд As Object: Set празд = СписокПраздников()
+    For r = 2 To n
+        Dim dt As Variant: dt = d.Cells(r, cДАТА).Value
+        If IsDate(dt) Then
+            Dim wd As Integer: wd = Weekday(dt, vbMonday)
+            If wd >= 6 Then
+                ЗаписатьФлаг d, r, "3. Выходной", "Дата — " & IIf(wd = 6, "суббота", "воскресенье")
+            ElseIf празд.Exists(Format(dt, "dd.mm")) Then
+                ЗаписатьФлаг d, r, "3. Праздник", "Праздничный день " & Format(dt, "dd.mm")
+            End If
+        End If
+    Next r
+    Финиш
+End Sub
+
+Public Sub Тест04_КруглыеИ999()
+    Dim d As Worksheet: Set d = Старт(): Dim r As Long, n As Long: n = ПоследняяСтрока(d)
+    For r = 2 To n
+        If IsNumeric(d.Cells(r, cСУММА).Value) Then
+            Dim s As Double: s = d.Cells(r, cСУММА).Value
+            Dim ip As Long: ip = Int(Abs(s))
+            If s <> 0 And s = ip And (ip Mod 1000 = 0) Then
+                ЗаписатьФлаг d, r, "4. Круглая сумма", "Кратна 1000: " & Format(s, "# ##0.00")
+            ElseIf ip Mod 1000 = 999 Then
+                ЗаписатьФлаг d, r, "4. Паттерн 999", "Хвост 999: " & Format(s, "# ##0.00")
+            End If
+        End If
+    Next r
+    Финиш
+End Sub
+
+Public Sub Тест05_КрупныеСуммы()
+    Dim d As Worksheet: Set d = Старт(): Dim r As Long, n As Long: n = ПоследняяСтрока(d)
+    Dim порог As Double: порог = ПорогТЕ()
+    For r = 2 To n
+        If IsNumeric(d.Cells(r, cСУММА).Value) Then
+            If Abs(d.Cells(r, cСУММА).Value) > порог Then ЗаписатьФлаг d, r, "5. Крупная (> ТЕ)", _
+                Format(d.Cells(r, cСУММА).Value, "# ##0.00") & " > " & Format(порог, "# ##0")
+        End If
+    Next r
+    Финиш
+End Sub
+
+Public Sub Тест06_ПовторСумм()
+    Dim d As Worksheet: Set d = Старт(): Dim r As Long, n As Long: n = ПоследняяСтрока(d)
+    Dim cnt As Object: Set cnt = CreateObject("Scripting.Dictionary")
+    For r = 2 To n
+        If IsNumeric(d.Cells(r, cСУММА).Value) Then
+            Dim k As String: k = Trim(d.Cells(r, cСОДЕРЖ).Value) & "|" & Format(d.Cells(r, cСУММА).Value, "0.00")
+            cnt(k) = cnt(k) + 1
+        End If
+    Next r
+    For r = 2 To n
+        If IsNumeric(d.Cells(r, cСУММА).Value) Then
+            Dim k2 As String: k2 = Trim(d.Cells(r, cСОДЕРЖ).Value) & "|" & Format(d.Cells(r, cСУММА).Value, "0.00")
+            If cnt(k2) > 1 Then ЗаписатьФлаг d, r, "6. Повтор суммы", _
+                "Сумма+содержание повторяется " & cnt(k2) & " раз"
+        End If
+    Next r
+    Финиш
+End Sub
+
+Public Sub Тест07_ДтРавноКт()
+    Dim d As Worksheet: Set d = Старт(): Dim r As Long, n As Long: n = ПоследняяСтрока(d)
+    For r = 2 To n
+        Dim a As String, b As String
+        a = Trim(d.Cells(r, cДТ).Value): b = Trim(d.Cells(r, cКТ).Value)
+        If a <> "" And a = b Then ЗаписатьФлаг d, r, "7. Дт = Кт", "Оба счёта: " & a
+    Next r
+    Финиш
+End Sub
+
+Public Sub Тест09_РедкиеПары()
+    Dim d As Worksheet: Set d = Старт(): Dim r As Long, n As Long: n = ПоследняяСтрока(d)
+    Dim порог As Long: порог = ПорогРедкости()
+    Dim cnt As Object: Set cnt = CreateObject("Scripting.Dictionary")
+    For r = 2 To n
+        Dim p As String: p = Trim(d.Cells(r, cДТ).Value) & ">" & Trim(d.Cells(r, cКТ).Value)
+        If p <> ">" Then cnt(p) = cnt(p) + 1
+    Next r
+    For r = 2 To n
+        Dim p2 As String: p2 = Trim(d.Cells(r, cДТ).Value) & ">" & Trim(d.Cells(r, cКТ).Value)
+        If p2 <> ">" Then
+            If cnt(p2) <= порог Then ЗаписатьФлаг d, r, "9. Редкая пара", _
+                "Корреспонденция " & p2 & " — всего " & cnt(p2) & " раз(а)"
+        End If
+    Next r
+    Финиш
+End Sub
+
+Public Sub Тест10_Сторно()
+    Dim d As Worksheet: Set d = Старт(): Dim r As Long, n As Long: n = ПоследняяСтрока(d)
+    For r = 2 To n
+        If IsNumeric(d.Cells(r, cСУММА).Value) Then
+            If d.Cells(r, cСУММА).Value < 0 Then ЗаписатьФлаг d, r, "10. Сторно", _
+                "Отрицательная сумма: " & Format(d.Cells(r, cСУММА).Value, "# ##0.00")
+        End If
+    Next r
+    Финиш
+End Sub
+
+Public Sub Тест11_БезОписания()
+    Dim d As Worksheet: Set d = Старт(): Dim r As Long, n As Long: n = ПоследняяСтрока(d)
+    For r = 2 To n
+        If Trim(CStr(d.Cells(r, cСОДЕРЖ).Value)) = "" Then _
+            ЗаписатьФлаг d, r, "11. Без описания", "Поле «Содержание» пусто"
+    Next r
+    Финиш
+End Sub
+
+Public Sub Тест13_БезСумм()
+    Dim d As Worksheet: Set d = Старт(): Dim r As Long, n As Long: n = ПоследняяСтрока(d)
+    For r = 2 To n
+        Dim v As Variant: v = d.Cells(r, cСУММА).Value
+        If Not IsNumeric(v) Or v = "" Then
+            ЗаписатьФлаг d, r, "13. Без суммы", "Поле «Сумма» пусто/нечисловое"
+        ElseIf v = 0 Then
+            ЗаписатьФлаг d, r, "13. Без суммы", "Сумма = 0"
+        End If
+    Next r
+    Финиш
+End Sub
+
+Public Sub Тест12_Бенфорд()
+    Dim d As Worksheet: Set d = Старт(): Dim r As Long, n As Long: n = ПоследняяСтрока(d)
+    Dim факт(1 To 9) As Long, всего As Long, i As Integer
+    For r = 2 To n
+        If IsNumeric(d.Cells(r, cСУММА).Value) Then
+            Dim s As String: s = Replace(Format(Abs(d.Cells(r, cСУММА).Value), "0"), " ", "")
+            Dim j As Integer
+            For j = 1 To Len(s)
+                Dim ch As String: ch = Mid(s, j, 1)
+                If ch >= "1" And ch <= "9" Then
+                    факт(CInt(ch)) = факт(CInt(ch)) + 1: всего = всего + 1: Exit For
+                End If
+            Next j
+        End If
+    Next r
+    Dim b As Worksheet: Set b = ПересоздатьЛист(SH_БЕНФ)
+    b.Range("A1:E1").Value = Array("Цифра", "Ожидаемо, %", "Факт, %", "Кол-во", "Отклонение, п.п.")
+    For i = 1 To 9
+        Dim ожид As Double: ожид = Log(1 + 1 / i) / Log(10) * 100
+        Dim фп As Double: фп = IIf(всего > 0, факт(i) / всего * 100, 0)
+        b.Cells(i + 1, 1).Value = i
+        b.Cells(i + 1, 2).Value = Round(ожид, 1)
+        b.Cells(i + 1, 3).Value = Round(фп, 1)
+        b.Cells(i + 1, 4).Value = факт(i)
+        b.Cells(i + 1, 5).Value = Round(фп - ожид, 1)
+        If Abs(фп - ожид) > 8 Then b.Cells(i + 1, 5).Interior.Color = RGB(255, 230, 180)
+    Next i
+    b.Columns.AutoFit
+    ЗаписатьФлаг d, 1, "12. Бенфорд", "См. лист «JET_Бенфорд»: отклонения > 8 п.п. подсвечены."
+    Финиш
+End Sub
+
+'==========================================================================
+'  НАСТРОЙКИ
+'==========================================================================
+Private Function ПорогТЕ() As Double
+    Dim ws As Worksheet: Set ws = ЛистНастроек()
+    If IsNumeric(ws.Range("B1").Value) Then If ws.Range("B1").Value > 0 Then ПорогТЕ = ws.Range("B1").Value
+    If ПорогТЕ = 0 Then ПорогТЕ = 100000
+End Function
+
+Private Function ПорогРедкости() As Long
+    Dim ws As Worksheet: Set ws = ЛистНастроек()
+    If IsNumeric(ws.Range("B2").Value) Then If ws.Range("B2").Value > 0 Then ПорогРедкости = ws.Range("B2").Value
+    If ПорогРедкости = 0 Then ПорогРедкости = 2
+End Function
+
+Private Function СписокПраздников() As Object
+    Dim ws As Worksheet: Set ws = ЛистНастроек()
+    Dim d As Object: Set d = CreateObject("Scripting.Dictionary")
+    Dim r As Long: r = 5
+    Do While Trim(CStr(ws.Cells(r, 1).Value)) <> ""
+        d(Trim(CStr(ws.Cells(r, 1).Value))) = True
+        r = r + 1
+    Loop
+    Set СписокПраздников = d
+End Function
+
+Private Function ЛистНастроек() As Worksheet
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = Worksheets(SH_НАСТР)
+    On Error GoTo 0
+    If ws Is Nothing Then
+        Set ws = Worksheets.Add: ws.Name = SH_НАСТР
+        ws.Range("A1").Value = "Порог существенности (ТЕ), руб.": ws.Range("B1").Value = 100000
+        ws.Range("A2").Value = "Порог «редкой» пары (раз и менее)": ws.Range("B2").Value = 2
+        ws.Range("A4").Value = "Праздничные дни (дд.мм):"
+        Dim hol, i As Long: hol = Array("01.01", "02.01", "07.01", "08.03", "01.05", "09.05", "03.07", "07.11", "25.12")
+        For i = 0 To UBound(hol): ws.Cells(5 + i, 1).Value = hol(i): Next i
+        ws.Columns.AutoFit
+    End If
+    Set ЛистНастроек = ws
+End Function
+
+'==========================================================================
+'  СЛУЖЕБНОЕ
+'==========================================================================
+Private Function Старт() As Worksheet
+    ' если тест запущен в одиночку — сам готовит данные и шапку «Флагов»
+    If Not мастерРежим Then
+        ПодготовитьДанные
+        ОчиститьИШапка
+    End If
+    Set Старт = ДанныеГотовы()
+End Function
+
+Private Sub Финиш()
+    If Not мастерРежим Then ОформитьФлаги
+End Sub
+
+Private Function ПарсДату(ByVal s As String) As Variant
+    Dim p As String: p = Trim(Split(s, " ")(0))
+    Dim a() As String: a = Split(p, ".")
+    On Error GoTo нет
+    If UBound(a) = 2 Then ПарсДату = DateSerial(CInt(a(2)), CInt(a(1)), CInt(a(0))): Exit Function
+нет:
+    ПарсДату = ""
+End Function
+
+Private Function ДанныеГотовы() As Worksheet
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = Worksheets(SH_ЧИСТО)
+    On Error GoTo 0
+    If ws Is Nothing Then ПодготовитьДанные: Set ws = Worksheets(SH_ЧИСТО)
+    Set ДанныеГотовы = ws
+End Function
+
+Private Function ПоследняяСтрока(ws As Worksheet) As Long
+    ПоследняяСтрока = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+End Function
+
+Private Function ПересоздатьЛист(имя As String) As Worksheet
+    Application.DisplayAlerts = False
+    On Error Resume Next
+    Worksheets(имя).Delete
+    On Error GoTo 0
+    Application.DisplayAlerts = True
+    Dim ws As Worksheet: Set ws = Worksheets.Add: ws.Name = имя
+    Set ПересоздатьЛист = ws
+End Function
+
+Private Sub ОчиститьИШапка()
+    Dim ws As Worksheet: Set ws = ПересоздатьЛист(SH_ФЛАГИ)
+    ws.Range("A1:G1").Value = Array("Стр.1С", "Дата", "Документ", "Сумма", "Содержание", "Тест", "Комментарий")
+    flagRow = 2
+End Sub
+
+Private Sub ЗаписатьФлаг(d As Worksheet, srcRow As Long, тест As String, коммент As String)
+    Dim f As Worksheet: Set f = Worksheets(SH_ФЛАГИ)
+    If srcRow >= 2 Then
+        f.Cells(flagRow, 1).Value = d.Cells(srcRow, cСТРОКА).Value
+        f.Cells(flagRow, 2).Value = d.Cells(srcRow, cДАТАТ).Value
+        f.Cells(flagRow, 3).Value = d.Cells(srcRow, cДОК).Value
+        f.Cells(flagRow, 4).Value = d.Cells(srcRow, cСУММА).Value
+        f.Cells(flagRow, 5).Value = d.Cells(srcRow, cСОДЕРЖ).Value
+    End If
+    f.Cells(flagRow, 6).Value = тест
+    f.Cells(flagRow, 7).Value = коммент
+    flagRow = flagRow + 1
+End Sub
+
+Private Sub ОформитьФлаги()
+    Dim f As Worksheet: Set f = Worksheets(SH_ФЛАГИ)
+    With f.Range("A1:G1")
+        .Font.Bold = True: .Font.Color = vbWhite
+        .Interior.Color = RGB(79, 45, 127)
+    End With
+    f.Columns.AutoFit
+    On Error Resume Next
+    f.Rows("1:1").AutoFilter
+    On Error GoTo 0
+    f.Activate
+End Sub
+```
+$lesson$,
+ 12, 0, true, NULL)
 
 ON CONFLICT (id) DO UPDATE SET
     topic_id = EXCLUDED.topic_id,
