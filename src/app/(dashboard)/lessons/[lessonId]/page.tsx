@@ -357,6 +357,29 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
         {children}
       </h2>
     ),
+    a: ({ href, children }) => {
+      const url = typeof href === "string" ? href : "";
+      // Материалы урока лежат в /public/lesson-files/ (same-origin) — атрибут download
+      // заставляет браузер скачать файл (а не открыть .bas/.md/.xlsx во вкладке),
+      // одинаково на macOS и Windows.
+      if (url.startsWith("/lesson-files/")) {
+        return (
+          <a
+            href={url}
+            download
+            className="inline-flex items-center gap-1 font-medium text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent transition-colors"
+          >
+            {children}
+          </a>
+        );
+      }
+      const isExternal = /^https?:\/\//.test(url);
+      return (
+        <a href={url} {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}>
+          {children}
+        </a>
+      );
+    },
     p: ({ children }) => {
       const text = nodeToText(children).trim();
       const placeholders = text.match(/\[СКРИН:[^\]]*\]/g);

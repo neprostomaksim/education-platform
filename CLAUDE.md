@@ -74,7 +74,7 @@ Key tables: `profiles`, `courses`, `topics`, `lessons`, `progress`, `user_course
 - `topics` → `lessons` form the course hierarchy. Both have `sort_order`, `is_published`, `block_name` (used to group lessons in the sidebar).
 - `progress` — one row per `(user_id, lesson_id)` with `completed` boolean.
 
-SQL migrations are in `supabase/` (`001_initial_schema.sql` in `supabase/migrations/`, then numbered `002_` → `017_` at the `supabase/` root, plus `seed.sql`). They are applied by hand in the Supabase SQL Editor (no CLI migration runner). Several are written to be idempotent and re-runnable. `017_lesson_images_storage.sql` creates the public `lesson-images` storage bucket.
+SQL migrations are in `supabase/` (`001_initial_schema.sql` in `supabase/migrations/`, then numbered `002_` → `024_` at the `supabase/` root, plus `seed.sql`). They are applied by hand in the Supabase SQL Editor (no CLI migration runner). Several are written to be idempotent and re-runnable. `017_lesson_images_storage.sql` creates the public `lesson-images` storage bucket.
 
 ### Admin API
 
