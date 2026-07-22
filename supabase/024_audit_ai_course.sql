@@ -431,36 +431,52 @@ $lesson$,
 
 ## Правило: в облако — только токены
 
-Реальные данные не уходят в нейросеть — уходят только **токены**: `КОМПАНИЯ_001`, `СЧЁТ_003`, `БАНК_002`. Соответствие «токен ↔ оригинал» остаётся на локальной машине и в облако **не загружается**.
+В нейросеть уходят только **обезличенные** данные: текст и ID заменяем **токенами** (`КОМПАНИЯ_001`), а **суммы масштабируем секретным коэффициентом** (они остаются числами, но не настоящими). Соответствие «токен ↔ оригинал» и коэффициент остаются на локальной машине и в облако **не загружаются**.
 
 ## Чек-лист «что маскируем»
 
 - наименование организации · ФИО · чувствительные суммы и реквизиты организаций (УНП, расчётный счёт, IBAN, БИК).
 
-## Обезличивание макросом — по шагам
+## Как обезличить умно: текст, ID и суммы — по-разному
 
-Макрос — это маленькая программа внутри Excel. Наш макрос `Anonymize.bas` умеет две вещи: **`Anonymize`** (заменить данные токенами) и **`Restore`** (вернуть оригиналы обратно). Скачайте макрос и учебный файл внизу урока и повторяйте по шагам.
+**Ключевая идея:** разные данные обезличиваем по-разному, иначе теряется смысл для ИИ.
 
-**Шаг 1. Добавьте макрос в Excel (один раз).** Два способа — выберите любой:
+| Что | Как обезличиваем | Почему так |
+|---|---|---|
+| Наименования, ФИО, УНП, счета, IBAN | **токены** `TK_001`, `TK_002` | ИИ не нужны реальные идентификаторы — он работает со структурой документа, токен для него просто метка |
+| **Суммы (деньги)** | **× секретный коэффициент** (число остаётся числом) | если заменить сумму на `TK_001`, ИИ не сможет её посчитать. Коэффициент сохраняет **пропорции**, ИИ по-прежнему анализирует числа, а реальные значения скрыты |
 
-**Способ А — вставить текстом (проще):**
-1. Откройте Excel-файл → **`Alt+F11`** (редактор Visual Basic).
-2. Меню **Insert → Module** — создастся пустой модуль.
-3. Скопируйте код ниже (кнопка копирования в углу блока) и **вставьте** в модуль.
-4. Закройте редактор — вернётесь в таблицу.
+Макрос `Anonymize.bas` — 5 команд (`Alt+F8` → выбрать нужную):
 
-**Способ Б — импортировать файл:** `Alt+F11` → **File → Import File…** → выберите скачанный `Anonymize.bas`.
+| Команда | Что делает |
+|---|---|
+| `Anonymize` | выделенный **текст/ID** → токены; карта на лист **«Map»** |
+| `AnonymizeAmounts` | выделенные **суммы** → × секретный коэффициент (число, пропорции сохранены) |
+| `Restore` | токены → оригиналы по карте |
+| `UnscaleAmounts` | масштабированные суммы ÷ коэффициент → оригиналы |
+| `ExportSafeCopy` | сохранить **копию только с обезличенными данными, без листа «Map»** — файл, безопасный для ИИ |
 
-`[СКРИН: редактор VBA (Alt+F11) с модулем Анонимизация]`
+## По шагам
 
-Код макроса «Анонимизация» (для вставки текстом):
+**Шаг 1. Добавьте макрос (один раз).** Два способа:
+- **Текстом (проще):** `Alt+F11` → **Insert → Module** → вставьте код ниже → закройте редактор.
+- **Файлом:** `Alt+F11` → **File → Import File…** → выберите `Anonymize.bas`.
+
+`[СКРИН: редактор VBA (Alt+F11) с модулем Anonymize]`
+
+Код макроса (для вставки текстом):
 
 ```
 '==========================================================================
-'  DATA ANONYMIZATION
-'  Anonymize - selected range values -> tokens; map on sheet "Map".
-'  Restore   - tokens back to originals (e.g. in an AI answer).
-'  WARNING: do NOT upload sheet "Map" to any AI service.
+'  DATA ANONYMIZATION (smart)
+'  Anonymize        - selected TEXT/ID cells -> tokens (names, companies, UNP, accounts).
+'  AnonymizeAmounts - selected NUMERIC cells -> value * secret coefficient (stays a number,
+'                     proportions preserved, so AI can still analyze amounts).
+'  Restore          - token cells back to originals (map lookup).
+'  UnscaleAmounts   - scaled amounts / coefficient -> originals.
+'  ExportSafeCopy   - copy the active DATA sheet to a NEW workbook WITHOUT the "Map" sheet
+'                     (safe file to give the AI; keep the original with "Map" local).
+'  WARNING: never upload the "Map" sheet to any AI.
 '  ASCII-only source: pastes correctly on any Windows locale.
 '==========================================================================
 Option Explicit
@@ -471,11 +487,11 @@ Sub Anonymize()
     Dim counter As Long, lastMapRow As Long, v As String
 
     If TypeName(Selection) <> "Range" Then
-        MsgBox "Select a range of cells to anonymize.", vbExclamation: Exit Sub
+        MsgBox "Select TEXT/ID cells to anonymize (names, companies, UNP, accounts).", vbExclamation: Exit Sub
     End If
     Set rng = Selection
 
-    prefix = InputBox("Token prefix (e.g. COMPANY, NAME, ACCOUNT):", "Anonymize", "TK")
+    prefix = InputBox("Token prefix (e.g. COMPANY, NAME, ACCOUNT, UNP):", "Anonymize text/IDs", "TK")
     If prefix = "" Then Exit Sub
 
     Set dict = CreateObject("Scripting.Dictionary")
@@ -498,8 +514,44 @@ Sub Anonymize()
         End If
     Next cell
 
-    MsgBox "Unique values anonymized: " & dict.Count & vbCrLf & _
+    MsgBox "Text/ID values anonymized: " & dict.Count & vbCrLf & _
            "Map is on sheet 'Map'. Do NOT upload it to any AI!", vbInformation
+End Sub
+
+Sub AnonymizeAmounts()
+    Dim rng As Range, cell As Range, k As Double, cnt As Long
+    If TypeName(Selection) <> "Range" Then
+        MsgBox "Select the AMOUNT cells (numbers) to anonymize.", vbExclamation: Exit Sub
+    End If
+    Set rng = Selection
+    k = GetCoefficient()
+    For Each cell In rng.Cells
+        If IsNumeric(cell.Value) And cell.Value <> "" Then
+            cell.Value = Round(CDbl(cell.Value) * k, 2)
+            cnt = cnt + 1
+        End If
+    Next cell
+    MsgBox "Amounts scaled: " & cnt & vbCrLf & _
+           "Secret coefficient (kept on 'Map'): " & k & vbCrLf & vbCrLf & _
+           "Amounts stay NUMERIC and proportional, so the AI can analyze them." & vbCrLf & _
+           "To read the AI's numeric results as real money - divide them by " & k & ".", vbInformation
+End Sub
+
+Sub UnscaleAmounts()
+    Dim rng As Range, cell As Range, k As Double, cnt As Long
+    If TypeName(Selection) <> "Range" Then
+        MsgBox "Select the scaled amounts to restore.", vbExclamation: Exit Sub
+    End If
+    Set rng = Selection
+    k = ReadCoefficient()
+    If k <= 0 Then MsgBox "Coefficient not found on 'Map'.", vbExclamation: Exit Sub
+    For Each cell In rng.Cells
+        If IsNumeric(cell.Value) And cell.Value <> "" Then
+            cell.Value = CDbl(cell.Value) / k
+            cnt = cnt + 1
+        End If
+    Next cell
+    MsgBox "Amounts restored: " & cnt, vbInformation
 End Sub
 
 Sub Restore()
@@ -507,7 +559,7 @@ Sub Restore()
     Dim dict As Object, i As Long, lastRow As Long, key As Variant
 
     If TypeName(Selection) <> "Range" Then
-        MsgBox "Select a range with tokens.", vbExclamation: Exit Sub
+        MsgBox "Select the range with tokens to restore.", vbExclamation: Exit Sub
     End If
     Set rng = Selection
 
@@ -530,8 +582,36 @@ Sub Restore()
         Next key
     Next cell
 
-    MsgBox "Data restored from the map.", vbInformation
+    MsgBox "Tokens restored from the map.", vbInformation
 End Sub
+
+Sub ExportSafeCopy()
+    Dim src As Worksheet: Set src = ActiveSheet
+    If LCase(src.Name) = "map" Then
+        MsgBox "Switch to the DATA sheet first (not 'Map').", vbExclamation: Exit Sub
+    End If
+    src.Copy
+    MsgBox "A NEW workbook with ONLY the anonymized data was created (no 'Map' sheet)." & vbCrLf & _
+           "Save it and give THIS file to the AI." & vbCrLf & _
+           "Keep your original file (with 'Map') on your computer only.", vbInformation
+End Sub
+
+Private Function GetCoefficient() As Double
+    Dim ws As Worksheet: Set ws = GetMapSheet()
+    If IsNumeric(ws.Range("D1").Value) And ws.Range("D1").Value > 0 Then
+        GetCoefficient = ws.Range("D1").Value
+    Else
+        Randomize
+        GetCoefficient = Int(Rnd * 800 + 150) / 100   ' 1.50 .. 9.49
+        ws.Range("C1").Value = "Coefficient": ws.Range("D1").Value = GetCoefficient
+    End If
+End Function
+
+Private Function ReadCoefficient() As Double
+    On Error Resume Next
+    ReadCoefficient = ThisWorkbook.Worksheets("Map").Range("D1").Value
+    On Error GoTo 0
+End Function
 
 Private Function GetMapSheet() As Worksheet
     Dim ws As Worksheet
@@ -547,25 +627,19 @@ Private Function GetMapSheet() As Worksheet
 End Function
 ```
 
-**Шаг 2. Обезличьте данные.**
-1. **Выделите мышкой диапазон** ячеек с чувствительными данными (названия, УНП, ФИО, суммы).
-2. Нажмите **`Alt+F8`** — откроется список макросов.
-3. Выберите **`Anonymize`** и нажмите **«Выполнить»** (Run).
-4. Введите префикс токена, например `КОМПАНИЯ`, и подтвердите.
-5. **Что вы увидите:** выделенные значения заменятся на токены (`КОМПАНИЯ_001`, `КОМПАНИЯ_002`…), а внизу появится **новый лист «Map»** — там пары «токен ↔ оригинал».
+**Шаг 2. Обезличьте текст и ID.** Выделите столбцы с наименованиями/ФИО/УНП/счетами → `Alt+F8` → **`Anonymize`** → введите префикс (напр. `КОМПАНИЯ`). Значения станут токенами, внизу появится лист **«Map»** (токен ↔ оригинал; там же хранится коэффициент).
 
-`[СКРИН: таблица до и после Обезличить + вкладка листа «Map»]`
+`[СКРИН: таблица с токенами + вкладка листа «Map»]`
 
-Макрос заменяет **любые выделенные значения целиком** — что выделили, то и обезличилось. По типам данных он не разбирает: выделите наименования — заменятся наименования, выделите суммы — суммы. Префикс (КОМПАНИЯ, ФИО, СЧЁТ) — просто удобное имя для токенов, чтобы в «Map» было понятно, что есть что.
+**Шаг 3. Обезличьте суммы.** Выделите столбец с суммами → `Alt+F8` → **`AnonymizeAmounts`**. Суммы умножатся на секретный коэффициент — останутся **числами**, и ИИ сможет их анализировать. Коэффициент сохранится на «Map». Чтобы прочитать числовой ответ ИИ как реальные деньги, **разделите его на коэффициент**.
 
-> ⚠️ **Важно:** лист **«Map» в нейросеть не загружаем и никому не пересылаем.** Он остаётся только у вас на компьютере — это и есть ключ к вашим реальным данным.
+**Шаг 4. Отдайте ИИ безопасную копию.** `Alt+F8` → **`ExportSafeCopy`** — создастся **новый файл только с обезличенными данными, без листа «Map»**. Сохраните его и загружайте в нейросеть. Оригинал (с «Map») остаётся у вас на компьютере.
 
-**Шаг 3. Верните оригиналы (когда получили ответ от ИИ).**
-Скопировали ответ ИИ с токенами обратно в Excel → выделите его → `Alt+F8` → выберите **`Restore`** → «Выполнить». Токены заменятся на настоящие значения по «Map».
+**Шаг 5. Верните оригиналы (когда нужно).** Токены → выделить → **`Restore`**; масштабированные суммы → выделить → **`UnscaleAmounts`**.
 
-> ❓ **Если не получилось:**
-> - Excel написал, что макросы отключены → **Файл → Параметры → Центр управления безопасностью → Параметры макросов → «Отключить с уведомлением»**, перезапустите файл и разрешите макрос вверху экрана.
-> - Не видите лист «Map» → он создаётся внизу среди вкладок листов, пролистайте вправо.
+> ⚠️ **Лист «Map» — ключ к вашим данным.** В нейросеть его НЕ загружаем и никому не пересылаем. Именно поэтому для ИИ используем `ExportSafeCopy` — копию без «Map».
+
+> ❓ **Если не получилось:** Excel написал, что макросы отключены → **Файл → Параметры → Центр управления безопасностью → Параметры макросов → «Отключить с уведомлением»**, перезапустите файл и разрешите макрос. Не видите лист «Map» → пролистайте вкладки листов вправо.
 
 ## Честный нюанс (обязательно)
 
@@ -580,8 +654,8 @@ End Function
 
 ### 🛠 Практика. Обезличивание туда и обратно
 
-**🎯 База:** скачайте учебный файл внизу урока, выделите диапазон с данными (наименования, ФИО, суммы, реквизиты) и прогоните `Anonymize`. Затем выделите токены и верните оригиналы через `Restore`.
-**🚀 Уровень 2:** обезличьте диапазон, где одно и то же наименование встречается в разных написаниях — проверьте, все ли вхождения поймались.
+**🎯 База:** скачайте учебный файл внизу. Выделите текстовые столбцы (наименование, ФИО, УНП, счёт) → `Anonymize`. Затем выделите столбец сумм → `AnonymizeAmounts`. Посмотрите лист **«Map»** (токены + коэффициент). Сделайте `ExportSafeCopy` → получите безопасную копию **без «Map»**. Верните оригиналы: `Restore` (токены) и `UnscaleAmounts` (суммы).
+**🚀 Уровень 2:** сравните обезличенные суммы с оригиналами — убедитесь, что **пропорции** сохранились (крупные остались крупными), а абсолютные значения скрыты. Разделите обезличенную сумму на коэффициент из «Map» — получите оригинал.
 > 🤔 **Перенос:** какое правило обезличивания вы сделаете обязательным для всей команды уже завтра?
 
 ## Бонус: агент-генератор макросов
@@ -617,10 +691,11 @@ End Function
 
 ## Что важно запомнить
 
-- 🔒 **В облако — только токены.** Карта замен — локально, никогда не загружается.
-- 🧾 **Маскируем:** наименование, УНП, счёт, IBAN, ФИО, БИК, суммы.
-- 👁️ **Вкрапления в тексте макрос не ловит** — свободный текст проверяем глазами.
-- 🧰 **Макрос заблокирован?** Ручной «Найти и заменить» + карта замен.
+- 🔤 **Текст и ID → токены**, **суммы → × коэффициент** (остаются числами, ИИ их анализирует).
+- 🗺 **Лист «Map»** (токены + коэффициент) — локально, в облако никогда не уходит.
+- 📤 **`ExportSafeCopy`** — отдаём ИИ копию **без «Map»**; оригинал остаётся у вас.
+- 🔁 **Возврат:** `Restore` (токены) + `UnscaleAmounts` (суммы ÷ коэффициент).
+- 👁️ **Вкрапления в длинной строке макрос не ловит** — свободный текст проверяем глазами.
 - 👥 **Задача руководителя** — сделать обезличивание правилом для всей команды.
 
 ## 📎 Материалы для скачивания
@@ -1584,18 +1659,23 @@ $lesson$,
 4. **Скопируйте код** нужного макроса ниже (кнопка копирования в углу блока) и **вставьте** в модуль.
 5. Закройте редактор → **`Alt+F8`** → выберите процедуру (например `RunAllTests`) → **«Выполнить»**.
 
-> 💡 Вставка текстом и импорт файлом (`.bas`, File → Import File) дают одинаковый результат.
+> 💡 Вставка текстом и импорт файлом (`.bas`) дают одинаковый результат.
 > 🖥 Все макросы — для **Excel на Windows**. Работать только на **обезличенных/учебных** данных.
 > 🔤 Имена процедур и создаваемых листов — латиницей (Map, Flags, TB_Flags…), чтобы код не ломался на нерусской Windows. Содержимое ячеек и данные — по-русски.
 
-## Обезличивание (`Anonymize` / `Restore`)
+## Обезличивание (`Anonymize` / `AnonymizeAmounts` / `Restore` / `ExportSafeCopy`)
 
 ```
 '==========================================================================
-'  DATA ANONYMIZATION
-'  Anonymize - selected range values -> tokens; map on sheet "Map".
-'  Restore   - tokens back to originals (e.g. in an AI answer).
-'  WARNING: do NOT upload sheet "Map" to any AI service.
+'  DATA ANONYMIZATION (smart)
+'  Anonymize        - selected TEXT/ID cells -> tokens (names, companies, UNP, accounts).
+'  AnonymizeAmounts - selected NUMERIC cells -> value * secret coefficient (stays a number,
+'                     proportions preserved, so AI can still analyze amounts).
+'  Restore          - token cells back to originals (map lookup).
+'  UnscaleAmounts   - scaled amounts / coefficient -> originals.
+'  ExportSafeCopy   - copy the active DATA sheet to a NEW workbook WITHOUT the "Map" sheet
+'                     (safe file to give the AI; keep the original with "Map" local).
+'  WARNING: never upload the "Map" sheet to any AI.
 '  ASCII-only source: pastes correctly on any Windows locale.
 '==========================================================================
 Option Explicit
@@ -1606,11 +1686,11 @@ Sub Anonymize()
     Dim counter As Long, lastMapRow As Long, v As String
 
     If TypeName(Selection) <> "Range" Then
-        MsgBox "Select a range of cells to anonymize.", vbExclamation: Exit Sub
+        MsgBox "Select TEXT/ID cells to anonymize (names, companies, UNP, accounts).", vbExclamation: Exit Sub
     End If
     Set rng = Selection
 
-    prefix = InputBox("Token prefix (e.g. COMPANY, NAME, ACCOUNT):", "Anonymize", "TK")
+    prefix = InputBox("Token prefix (e.g. COMPANY, NAME, ACCOUNT, UNP):", "Anonymize text/IDs", "TK")
     If prefix = "" Then Exit Sub
 
     Set dict = CreateObject("Scripting.Dictionary")
@@ -1633,8 +1713,44 @@ Sub Anonymize()
         End If
     Next cell
 
-    MsgBox "Unique values anonymized: " & dict.Count & vbCrLf & _
+    MsgBox "Text/ID values anonymized: " & dict.Count & vbCrLf & _
            "Map is on sheet 'Map'. Do NOT upload it to any AI!", vbInformation
+End Sub
+
+Sub AnonymizeAmounts()
+    Dim rng As Range, cell As Range, k As Double, cnt As Long
+    If TypeName(Selection) <> "Range" Then
+        MsgBox "Select the AMOUNT cells (numbers) to anonymize.", vbExclamation: Exit Sub
+    End If
+    Set rng = Selection
+    k = GetCoefficient()
+    For Each cell In rng.Cells
+        If IsNumeric(cell.Value) And cell.Value <> "" Then
+            cell.Value = Round(CDbl(cell.Value) * k, 2)
+            cnt = cnt + 1
+        End If
+    Next cell
+    MsgBox "Amounts scaled: " & cnt & vbCrLf & _
+           "Secret coefficient (kept on 'Map'): " & k & vbCrLf & vbCrLf & _
+           "Amounts stay NUMERIC and proportional, so the AI can analyze them." & vbCrLf & _
+           "To read the AI's numeric results as real money - divide them by " & k & ".", vbInformation
+End Sub
+
+Sub UnscaleAmounts()
+    Dim rng As Range, cell As Range, k As Double, cnt As Long
+    If TypeName(Selection) <> "Range" Then
+        MsgBox "Select the scaled amounts to restore.", vbExclamation: Exit Sub
+    End If
+    Set rng = Selection
+    k = ReadCoefficient()
+    If k <= 0 Then MsgBox "Coefficient not found on 'Map'.", vbExclamation: Exit Sub
+    For Each cell In rng.Cells
+        If IsNumeric(cell.Value) And cell.Value <> "" Then
+            cell.Value = CDbl(cell.Value) / k
+            cnt = cnt + 1
+        End If
+    Next cell
+    MsgBox "Amounts restored: " & cnt, vbInformation
 End Sub
 
 Sub Restore()
@@ -1642,7 +1758,7 @@ Sub Restore()
     Dim dict As Object, i As Long, lastRow As Long, key As Variant
 
     If TypeName(Selection) <> "Range" Then
-        MsgBox "Select a range with tokens.", vbExclamation: Exit Sub
+        MsgBox "Select the range with tokens to restore.", vbExclamation: Exit Sub
     End If
     Set rng = Selection
 
@@ -1665,8 +1781,36 @@ Sub Restore()
         Next key
     Next cell
 
-    MsgBox "Data restored from the map.", vbInformation
+    MsgBox "Tokens restored from the map.", vbInformation
 End Sub
+
+Sub ExportSafeCopy()
+    Dim src As Worksheet: Set src = ActiveSheet
+    If LCase(src.Name) = "map" Then
+        MsgBox "Switch to the DATA sheet first (not 'Map').", vbExclamation: Exit Sub
+    End If
+    src.Copy
+    MsgBox "A NEW workbook with ONLY the anonymized data was created (no 'Map' sheet)." & vbCrLf & _
+           "Save it and give THIS file to the AI." & vbCrLf & _
+           "Keep your original file (with 'Map') on your computer only.", vbInformation
+End Sub
+
+Private Function GetCoefficient() As Double
+    Dim ws As Worksheet: Set ws = GetMapSheet()
+    If IsNumeric(ws.Range("D1").Value) And ws.Range("D1").Value > 0 Then
+        GetCoefficient = ws.Range("D1").Value
+    Else
+        Randomize
+        GetCoefficient = Int(Rnd * 800 + 150) / 100   ' 1.50 .. 9.49
+        ws.Range("C1").Value = "Coefficient": ws.Range("D1").Value = GetCoefficient
+    End If
+End Function
+
+Private Function ReadCoefficient() As Double
+    On Error Resume Next
+    ReadCoefficient = ThisWorkbook.Worksheets("Map").Range("D1").Value
+    On Error GoTo 0
+End Function
 
 Private Function GetMapSheet() As Worksheet
     Dim ws As Worksheet
