@@ -9,7 +9,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm run dev      # Start dev server (localhost:3000)
 npm run build    # Production build
-npm run lint     # ESLint
+npm run start    # Serve the production build
+npm run lint     # ESLint (flat config, `eslint` — not `next lint`)
+
+# Dump lesson texts from Supabase to stdout (needs --env-file for the service-role key)
+node --env-file=.env.local scripts/review-lessons.mjs                       # list courses/topics
+node --env-file=.env.local scripts/review-lessons.mjs --course нейроконтент # or --topic <id> / --lesson <id>
 ```
 
 No test suite is configured.
@@ -74,7 +79,20 @@ Key tables: `profiles`, `courses`, `topics`, `lessons`, `progress`, `user_course
 - `topics` → `lessons` form the course hierarchy. Both have `sort_order`, `is_published`, `block_name` (used to group lessons in the sidebar).
 - `progress` — one row per `(user_id, lesson_id)` with `completed` boolean.
 
-SQL migrations are in `supabase/` (`001_initial_schema.sql` in `supabase/migrations/`, then numbered `002_` → `025_` at the `supabase/` root, plus `seed.sql`). They are applied by hand in the Supabase SQL Editor (no CLI migration runner). Several are written to be idempotent and re-runnable. `017_lesson_images_storage.sql` creates the public `lesson-images` storage bucket. The «ИИ для аудиторов» course is split across two idempotent migrations: `024_audit_ai_course_day1.sql` (День 1 — Модули 1–3 + Справочник, курс `dd…440001`) and `025_audit_ai_course_day2.sql` (День 2 — Модули 4–5, курс `dd…440002`); they are independent, so Day 2 can be edited without touching Day 1.
+SQL migrations are in `supabase/` (`001_initial_schema.sql` in `supabase/migrations/`, then numbered `002_` → `027_` at the `supabase/` root, plus `seed.sql`). They are applied by hand in the Supabase SQL Editor (no CLI migration runner). Several are written to be idempotent and re-runnable. `017_lesson_images_storage.sql` creates the public `lesson-images` storage bucket. The «ИИ для аудиторов» course is split across two idempotent migrations: `024_audit_ai_course_day1.sql` (День 1 — Модули 1–3 + Справочник, курс `dd…440001`) and `025_audit_ai_course_day2.sql` (День 2 — Модули 4–6, где М6 — Справочник агентов, курс `dd…440002`); they are independent, so Day 2 can be edited without touching Day 1.
+
+### Course Content Authoring
+
+Most work in this repo is authoring course content, not app code. Courses/topics/lessons live in the database, and the SQL migration is the source of truth — edit the migration and re-run it, don't hand-edit rows in Supabase.
+
+- **One migration per course (or per course-day).** Add a new numbered file at the `supabase/` root rather than modifying an applied one, unless you are revising a course that already owns its own migration (e.g. `025_…day2.sql`).
+- **Fixed UUIDs, not `gen_random_uuid()`.** Every course/topic/lesson is inserted with a hardcoded UUID so re-runs update in place. Each course owns a prefix and numbers its rows sequentially: `550e…` / `660e…` / `770e…` for the base «Нейросети» course, `990e…440001` for «ИИ для руководителей бизнеса», `dd0e…440001`/`440002` for «ИИ для аудиторов» День 1/День 2.
+- **Idempotency style varies by vintage.** Newer migrations (`024`, `025`, `026`) use `INSERT … ON CONFLICT (id) DO UPDATE` and are safely re-runnable. Older ones (e.g. `013`) begin with a `DELETE` cascade over the course's ids — re-running those wipes student `progress` and `user_courses` grants for that course. Prefer the `ON CONFLICT` pattern for anything new, and extend such a course from a *new* migration (as `026_business_leaders_agents.sql` does for the «ИИ для руководителей бизнеса» course) rather than editing the DELETE-style original.
+- **Topic `icon` values must exist in `iconMap`** in [`courses/[courseId]/page.tsx`](src/app/(dashboard)/courses/[courseId]/page.tsx#L28) — only `MessageSquareText`, `Bot`, `Image`, `Code`, `BookOpen`, `Layers` resolve; anything else silently falls back to `BookOpen` (most icons in `013` do).
+- Lesson `content` is a markdown string inside the SQL literal (`$$ … $$` dollar-quoting). Doubling `''` inside single-quoted bodies is a common breakage point.
+- **Source material** for courses is in `files/` (docx/md/xlsx originals — programs, prompt collections, VBA macros, sample documents). Files that lessons link to for download must additionally be copied into `public/lesson-files/`, which is served statically. There is no pandoc in this environment; macOS `textutil -convert docx input.html -output out.docx` converts an HTML rendering of the Markdown source and preserves Cyrillic, tables and lists.
+- **Adding to a lesson without rewriting its migration:** use a targeted `UPDATE … SET content = replace(content, <anchor>, <anchor with insert>)` guarded by `content NOT LIKE '%<marker>%'` so re-runs are no-ops (see `027_business_process_guide_link.sql`). Verify the anchor occurs exactly once in the real lesson body first.
+- **`/review-lessons`** (`.claude/commands/review-lessons.md`) reviews lesson text against the course's pedagogical checklist. `scripts/review-lessons.mjs` only pulls the lesson bodies out of Supabase and prints them between `===== LESSON: … =====` markers; the review itself is done by Claude Code reading that output.
 
 ### Admin API
 
