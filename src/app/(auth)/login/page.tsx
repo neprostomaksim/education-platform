@@ -31,7 +31,9 @@ export default function LoginPage() {
         : error.message);
       setLoading(false);
     } else {
-      router.push("/dashboard");
+      // Honor ?next= (e.g. the /claim activation flow); only same-origin paths.
+      const next = new URLSearchParams(window.location.search).get("next");
+      router.push(next && next.startsWith("/") ? next : "/dashboard");
       router.refresh();
     }
   };

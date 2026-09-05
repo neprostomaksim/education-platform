@@ -30,9 +30,11 @@ export default function DashboardShell({
   const pathname = usePathname();
   const supabase = createClient();
 
-  // Restore collapsed state from previous session (desktop only)
+  // Restore collapsed state from previous session (desktop only). Client-only
+  // localStorage read after mount, so server/client first render stays in sync.
   useEffect(() => {
     if (typeof window !== "undefined" && localStorage.getItem("lms-sidebar-collapsed") === "true") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCollapsed(true);
     }
   }, []);
@@ -47,12 +49,22 @@ export default function DashboardShell({
     });
   };
 
-  // Redirect to pending if not approved
+  // Redirect to pending if not approved. Exception: /prompts is a standalone
+  // paid product gated by its own entitlement, so a prompts-only buyer (who is
+  // not is_approved for courses) must not be bounced to /pending there.
   useEffect(() => {
-    if (!loading && user && profile && profile.role !== "admin" && !profile.is_approved) {
+    const promptsExempt = pathname?.startsWith("/prompts");
+    if (
+      !loading &&
+      user &&
+      profile &&
+      profile.role !== "admin" &&
+      !profile.is_approved &&
+      !promptsExempt
+    ) {
       router.push("/pending");
     }
-  }, [user, profile, loading, router]);
+  }, [user, profile, loading, router, pathname]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();

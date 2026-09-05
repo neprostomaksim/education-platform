@@ -848,3 +848,28 @@ export const PROMPTS_DATA: PromptData[] = [
     tags: ["ретушь", "фото", "редактирование"],
   }
 ];
+
+/**
+ * Server-side access gate split.
+ *
+ * `PROMPTS_DATA` (with the full `prompt` bodies) must only ever be imported by
+ * SERVER code — the prompt bodies are the paid product and must not ship in the
+ * client bundle. The prompts page is a Server Component that sends `PROMPTS_META`
+ * to the client always, and the bodies only to entitled users.
+ */
+export type PromptMeta = Omit<PromptData, "prompt">;
+
+/** Catalog metadata — safe to send to any client (no prompt bodies). */
+export const PROMPTS_META: PromptMeta[] = PROMPTS_DATA.map((p) => ({
+  id: p.id,
+  title: p.title,
+  description: p.description,
+  specialty: p.specialty,
+  category: p.category,
+  tags: p.tags,
+}));
+
+/** id → full prompt body. Server-only; hand to the client solely when entitled. */
+export const PROMPT_BODIES: Record<string, string> = Object.fromEntries(
+  PROMPTS_DATA.map((p) => [p.id, p.prompt])
+);
