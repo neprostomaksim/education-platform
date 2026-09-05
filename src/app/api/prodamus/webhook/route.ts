@@ -233,12 +233,15 @@ function isSequentialList(keys: string[]): boolean {
 }
 
 function appOrigin(request: Request): string {
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
-  }
+  // Prefer the host this request actually hit, so claim links resolve to the
+  // same environment (preview or production) that received the webhook. Falls
+  // back to an explicit override, then the request URL.
   const proto = request.headers.get("x-forwarded-proto") ?? "https";
   const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
   if (host) return `${proto}://${host}`;
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  }
   return new URL(request.url).origin;
 }
 

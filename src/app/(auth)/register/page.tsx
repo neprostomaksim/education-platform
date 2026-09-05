@@ -28,7 +28,7 @@ export default function RegisterPage() {
       return;
     }
 
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -41,10 +41,21 @@ export default function RegisterPage() {
     if (error) {
       setError(error.message);
       setLoading(false);
-    } else {
-      setSuccess(true);
-      setLoading(false);
+      return;
     }
+
+    // If a ?next= is present (e.g. the /claim activation flow) and sign-up
+    // created a session (email confirmation off), continue there instead of the
+    // "await approval" screen — the buyer needs to finish claiming their purchase.
+    const next = new URLSearchParams(window.location.search).get("next");
+    if (data.session && next && next.startsWith("/")) {
+      router.push(next);
+      router.refresh();
+      return;
+    }
+
+    setSuccess(true);
+    setLoading(false);
   };
 
   if (success) {
