@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { safeNext } from "@/lib/security/redirect";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -22,8 +23,8 @@ export default function RegisterPage() {
     setLoading(true);
     setError(null);
 
-    if (password.length < 6) {
-      setError("Пароль должен содержать минимум 6 символов");
+    if (password.length < 12) {
+      setError("Пароль должен содержать минимум 12 символов");
       setLoading(false);
       return;
     }
@@ -32,6 +33,7 @@ export default function RegisterPage() {
       email,
       password,
       options: {
+        emailRedirectTo: `${window.location.origin}/callback?next=${encodeURIComponent(safeNext(new URLSearchParams(window.location.search).get("next")))}`,
         data: {
           full_name: fullName,
         },
@@ -48,8 +50,8 @@ export default function RegisterPage() {
     // created a session (email confirmation off), continue there instead of the
     // "await approval" screen — the buyer needs to finish claiming their purchase.
     const next = new URLSearchParams(window.location.search).get("next");
-    if (data.session && next && next.startsWith("/")) {
-      router.push(next);
+    if (data.session && next) {
+      router.push(safeNext(next));
       router.refresh();
       return;
     }
@@ -69,7 +71,11 @@ export default function RegisterPage() {
           Ваш аккаунт создан и ожидает ручного подтверждения администратором. После одобрения вы сможете войти в систему.
         </p>
         <Link
-          href="/login"
+          href="/login" onClick={event => {
+            event.preventDefault();
+            const next = safeNext(new URLSearchParams(window.location.search).get("next"));
+            router.push(`/login?next=${encodeURIComponent(next)}`);
+          }}
           className="inline-flex items-center justify-center w-full px-4 py-3 rounded-xl bg-accent hover:bg-accent-hover text-accent-foreground font-medium text-sm transition-all duration-200 glow-accent"
         >
           Перейти к входу
@@ -123,7 +129,7 @@ export default function RegisterPage() {
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Минимум 6 символов"
+              placeholder="Минимум 12 символов"
               required
               className="w-full pl-10 pr-12 py-3 rounded-xl bg-input border border-border focus:border-accent focus:ring-1 focus:ring-accent outline-none text-sm text-foreground placeholder:text-muted-foreground transition-colors"
             />
@@ -160,7 +166,11 @@ export default function RegisterPage() {
       {/* Login link */}
       <p className="text-center text-sm text-muted mt-6">
         Уже есть аккаунт?{" "}
-        <Link href="/login" className="text-accent hover:text-accent-hover transition-colors font-medium">
+        <Link href="/login" onClick={event => {
+            event.preventDefault();
+            const next = safeNext(new URLSearchParams(window.location.search).get("next"));
+            router.push(`/login?next=${encodeURIComponent(next)}`);
+          }} className="text-accent hover:text-accent-hover transition-colors font-medium">
           Войти
         </Link>
       </p>

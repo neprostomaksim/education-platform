@@ -1,3 +1,4 @@
+import "server-only";
 import type { PromptData } from "@/components/lesson/prompt-card";
 
 /**

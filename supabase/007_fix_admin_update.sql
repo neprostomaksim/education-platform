@@ -1,8 +1,4 @@
--- Disable the trigger temporarily
-ALTER TABLE public.profiles DISABLE TRIGGER ensure_profile_security;
-
--- Update the user
-UPDATE public.profiles SET role = 'admin', is_approved = true;
+-- Historical migration: never promote all profiles. Administrator bootstrap must target an explicitly verified account.
 
 -- Update the trigger function to allow backend/SQL editor updates!
 CREATE OR REPLACE FUNCTION public.check_profile_update() RETURNS trigger AS $$
@@ -19,5 +15,4 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Re-enable the trigger
-ALTER TABLE public.profiles ENABLE TRIGGER ensure_profile_security;
+-- Existing trigger stays enabled throughout.

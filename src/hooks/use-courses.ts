@@ -1,127 +1,38 @@
 "use client";
-
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { CourseWithTopics, TopicWithProgress } from "@/types";
+import type { Course, CourseWithTopics, Topic, Lesson } from "@/types";
 
 export function useCourses(userId?: string) {
-  const [courses, setCourses] = useState<CourseWithTopics[]>([]);
-  const [loading, setLoading] = useState(true);
-  const supabase = createClient();
-
+  const [state, setState] = useState<{ userId?: string; courses: CourseWithTopics[]; loading: boolean }>({ courses: [], loading: true });
   useEffect(() => {
-    // Load from cache first
-    if (typeof window !== "undefined") {
-      const cached = localStorage.getItem("lms-courses-cache");
-      if (cached) {
-        try {
-          setCourses(JSON.parse(cached));
-          setLoading(false);
-        } catch (e) {
-          console.error("Error reading lms-courses-cache:", e);
-        }
-      }
-    }
-
-    const fetchCourses = async () => {
+    let active = true;
+    const load = async () => {
+      if (!userId) { if (active) setState({ userId, courses: [], loading: false }); return; }
+      const supabase = createClient();
       try {
-        console.log("Fetching courses...");
-        // Fetch published courses. RLS automatically filters those the user has access to!
-        const { data: coursesData, error: coursesError } = await supabase
-          .from("courses")
-          .select("*")
-          .eq("is_published", true)
-          .order("created_at");
-
-        console.log("Courses fetched:", coursesData, coursesError);
-        if (coursesError) throw coursesError;
-
-        if (!coursesData || coursesData.length === 0) {
-          console.log("No courses found. Returning.");
-          setCourses([]);
-          return;
-        }
-
-        console.log("Fetching topics...");
-        // Fetch published topics. RLS handles access control.
-        const { data: topicsData, error: topicsError } = await supabase
-          .from("topics")
-          .select("*")
-          .eq("is_published", true)
-          .order("sort_order");
-
-        console.log("Topics fetched:", topicsData, topicsError);
-        if (topicsError) throw topicsError;
-
-        console.log("Fetching lessons...");
-        // Fetch published lessons. RLS handles access control.
-        const { data: lessonsData, error: lessonsError } = await supabase
-          .from("lessons")
-          .select("*")
-          .eq("is_published", true)
-          .order("sort_order");
-          
-        console.log("Lessons fetched:", lessonsData, lessonsError);
-
-        // Fetch progress if user is logged in
-        let progressData: { lesson_id: string }[] = [];
-        if (userId) {
-          const { data } = await supabase
-            .from("progress")
-            .select("lesson_id")
-            .eq("user_id", userId)
-            .eq("completed", true);
-          progressData = data || [];
-        }
-
-        const completedLessonIds = new Set(progressData.map((p) => p.lesson_id));
-
-        // Group into topics with progress
-        const topicsWithProgress: TopicWithProgress[] = (topicsData || []).map((topic: any) => {
-          const topicLessons = (lessonsData || []).filter(
-            (l: any) => l.topic_id === topic.id
-          );
-          return {
-            ...topic,
-            lessons: topicLessons,
-            totalLessons: topicLessons.length,
-            completedLessons: topicLessons.filter((l: any) =>
-              completedLessonIds.has(l.id)
-            ).length,
-          };
+        const results = await Promise.all([
+          supabase.from("courses").select("*").eq("is_published", true).order("created_at"),
+          supabase.from("topics").select("*").eq("is_published", true).order("sort_order"),
+          // Course lists need metadata only; never download/cache every lesson body.
+          supabase.from("lessons").select("id,topic_id,title,sort_order,duration_minutes,block_name,is_published,created_at").eq("is_published", true).order("sort_order"),
+          supabase.from("progress").select("lesson_id").eq("user_id", userId).eq("completed", true),
+        ]);
+        if (results.some(r => r.error)) throw new Error("Course query failed");
+        const completed = new Set((results[3].data || []).map((p: { lesson_id: string }) => p.lesson_id));
+        const topics = (results[1].data as unknown as Topic[] || []).map(topic => {
+          const lessons = (results[2].data as unknown as Lesson[] || []).filter(l => l.topic_id === topic.id);
+          return { ...topic, lessons, totalLessons: lessons.length, completedLessons: lessons.filter(l => completed.has(l.id)).length };
         });
-
-        // Group into courses
-        const coursesWithTopics: CourseWithTopics[] = coursesData.map((course: any) => {
-          const courseTopics = topicsWithProgress.filter((t: any) => t.course_id === course.id);
-          const totalTopics = courseTopics.length;
-          const completedTopics = courseTopics.filter(
-            (t: any) => t.totalLessons > 0 && t.completedLessons === t.totalLessons
-          ).length;
-
-          return {
-            ...course,
-            topics: courseTopics,
-            totalTopics,
-            completedTopics,
-          };
+        const courses = (results[0].data as unknown as Course[] || []).map(course => {
+          const ct = topics.filter(t => t.course_id === course.id);
+          return { ...course, topics: ct, totalTopics: ct.length, completedTopics: ct.filter(t => t.totalLessons > 0 && t.completedLessons === t.totalLessons).length };
         });
-
-        setCourses(coursesWithTopics);
-        
-        // Save to cache
-        if (typeof window !== "undefined") {
-          localStorage.setItem("lms-courses-cache", JSON.stringify(coursesWithTopics));
-        }
-      } catch (error: any) {
-        console.error("Error fetching courses:", error.message, error);
-      } finally {
-        setLoading(false);
-      }
+        if (active) setState({ userId, courses, loading: false });
+      } catch { if (active) setState({ userId, courses: [], loading: false }); }
     };
-
-    fetchCourses();
+    void load();
+    return () => { active = false; };
   }, [userId]);
-
-  return { courses, loading };
+  return state.userId === userId ? state : { courses: [], loading: !!userId };
 }

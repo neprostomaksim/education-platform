@@ -3,6 +3,7 @@
 import { useEffect, useState, use, useMemo, useRef, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { protectedImageSource } from "@/lib/lesson-assets";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createClient } from "@/lib/supabase/client";
@@ -36,8 +37,9 @@ interface LessonWithTopic extends Lesson {
   topic: Topic;
 }
 
+type NavigationLesson = Pick<Lesson, "id" | "topic_id" | "title" | "sort_order" | "duration_minutes" | "block_name">;
 interface TopicWithLessons extends Topic {
-  lessons: (Lesson & { completed: boolean })[];
+  lessons: (NavigationLesson & { completed: boolean })[];
 }
 
 // Topic ID for Prompt Engineering module
@@ -111,6 +113,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [loadedFor, setLoadedFor] = useState("");
   const [sequentialAccess, setSequentialAccess] = useState(false);
   const [activeBlock, setActiveBlock] = useState(0);
   const [selectedSpecialty, setSelectedSpecialty] = useState<Specialty>("all");
@@ -132,6 +135,8 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
   const { addToast } = useToast();
   const router = useRouter();
   const supabase = createClient();
+  const userId = user?.id;
+  const accessKey = `${userId}/${lessonId}/${profile?.role}/${profile?.is_approved}`;
 
   // Check if current lesson belongs to prompt engineering topic
   const isPromptEngineeringLesson = lesson?.topic_id === PROMPT_ENGINEERING_TOPIC_ID;
@@ -359,7 +364,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
     ),
     a: ({ href, children }) => {
       const url = typeof href === "string" ? href : "";
-      // Материалы урока лежат в /public/lesson-files/ (same-origin) — атрибут download
+      // Материалы выдаёт защищённый /lesson-files/ (same-origin) — атрибут download
       // заставляет браузер скачать файл (а не открыть .bas/.md/.xlsx во вкладке),
       // одинаково на macOS и Windows.
       if (url.startsWith("/lesson-files/")) {
@@ -423,7 +428,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
       return (
         <span className="block my-4 text-center">
           <img
-            src={src}
+            src={typeof src === "string" ? protectedImageSource(src) : src}
             alt={label}
             style={{
               width: `${width}%`,
@@ -433,7 +438,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
               marginRight: "auto",
             }}
             onClick={() => {
-              if (typeof src === "string") setActiveImage(src);
+              if (typeof src === "string") setActiveImage(protectedImageSource(src));
             }}
             className="rounded-xl cursor-zoom-in"
           />
@@ -470,262 +475,62 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
   };
 
   useEffect(() => {
-    // Don't fetch until useUser has finished loading
     if (userLoading) return;
-
-    // If no user after loading is done, redirect to login
-    if (!user) {
-      setLoading(false);
-      router.push("/login");
-      return;
-    }
-
-    const loadFromCache = () => {
-      if (typeof window === "undefined") return false;
-      
-      const cachedCoursesStr = localStorage.getItem("lms-courses-cache");
-      const completedIdsStr = localStorage.getItem("lms-progress-completed-ids") || "[]";
-      
-      if (!cachedCoursesStr) return false;
-      
-      try {
-        const cachedCourses = JSON.parse(cachedCoursesStr);
-        if (!Array.isArray(cachedCourses)) return false;
-        
-        let completedIds: string[] = [];
-        try {
-          completedIds = JSON.parse(completedIdsStr);
-          if (!Array.isArray(completedIds)) completedIds = [];
-        } catch (e) {
-          console.error("Error parsing lms-progress-completed-ids cache:", e);
-        }
-        const completedSet = new Set(completedIds);
-        
-        // Find the lesson first to identify the course
-        let foundLesson: LessonWithTopic | null = null;
-        let targetCourseId: string | null = null;
-        
-        for (const course of cachedCourses) {
-          if (!course.topics || !Array.isArray(course.topics)) continue;
-          
-          for (const topic of course.topics) {
-            const matchingLesson = (topic.lessons || []).find((l: any) => l.id === lessonId);
-            if (matchingLesson) {
-              foundLesson = {
-                ...matchingLesson,
-                topic: { ...topic },
-              };
-              targetCourseId = course.id;
-              break;
-            }
-          }
-          if (foundLesson) break;
-        }
-        
-        if (!foundLesson) {
-          return false;
-        }
-        
-        // Load only the topics from the current course
-        const allTopics: TopicWithLessons[] = [];
-        const targetCourse = cachedCourses.find((c: any) => c.id === targetCourseId);
-        if (targetCourse && Array.isArray(targetCourse.topics)) {
-          for (const topic of targetCourse.topics) {
-            const topicLessons = (topic.lessons || []).map((l: any) => ({
-              ...l,
-              completed: completedSet.has(l.id),
-            }));
-            
-            const topicWithLessons: TopicWithLessons = {
-              ...topic,
-              lessons: topicLessons,
-            };
-            
-            allTopics.push(topicWithLessons);
-          }
-        }
-        
-        // Order topics by sort_order
-        allTopics.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-        
-        setLesson(foundLesson);
-        setTopics(allTopics);
-        setIsCompleted(completedSet.has(lessonId));
-        
-        // Expand current topic
-        const currentTopic = allTopics.find(t => 
-          t.lessons.some(l => l.id === lessonId)
-        );
-        if (currentTopic) {
-          setExpandedTopics(new Set([currentTopic.id]));
-        }
-        
-        console.log("[PWA] Successfully loaded lesson page data from local cache");
-        return true;
-      } catch (e) {
-        console.error("Error loading lesson page data from cache:", e);
-        return false;
-      }
-    };
-
+    if (!userId) { router.replace("/login"); return; }
+    let active = true;
     const fetchData = async () => {
       setLoading(true);
-      
-      // If offline, try cache first
-      if (typeof window !== "undefined" && !navigator.onLine) {
-        const success = loadFromCache();
-        if (success) {
-          setLoading(false);
-          return;
-        }
-      }
-      
       try {
-        // Fetch current lesson with topic
         const { data: lessonData, error: lessonError } = await supabase
-          .from("lessons")
-          .select("*, topic:topics(*)")
-          .eq("id", lessonId)
-          .single();
-
-        if (lessonError || !lessonData) {
-          console.warn("Supabase failed to fetch lesson, checking cache...", lessonError);
-          const success = loadFromCache();
-          if (success) return;
-          
-          router.push("/dashboard");
-          return;
-        }
-
+          .from("lessons").select("*, topic:topics(*)").eq("id", lessonId).single();
+        if (!active) return;
+        if (lessonError || !lessonData) throw new Error("Lesson access denied");
         const resolvedTopic = Array.isArray(lessonData.topic) ? lessonData.topic[0] : lessonData.topic;
         const currentCourseId = resolvedTopic?.course_id;
-
-        setLesson({
-          ...lessonData,
-          topic: resolvedTopic,
-        } as LessonWithTopic);
-
-        // Fetch topics for current course
-        const topicsQuery = supabase
-          .from("topics")
-          .select("*")
-          .eq("is_published", true)
-          .order("sort_order");
-
-        if (currentCourseId) {
-          topicsQuery.eq("course_id", currentCourseId);
-        }
-
-        const { data: topicsData, error: topicsError } = await topicsQuery;
-
-        // Fetch lessons for the topics of current course
-        let lessonsData: any[] = [];
-        let lessonsError: any = null;
-
-        if (topicsData && topicsData.length > 0) {
-          const topicIds = topicsData.map((t: any) => t.id);
-          const { data, error } = await supabase
-            .from("lessons")
-            .select("*")
-            .eq("is_published", true)
-            .in("topic_id", topicIds)
-            .order("sort_order");
+        if (!currentCourseId) throw new Error("Course unavailable");
+        const { data: topicsData, error: topicsError } = await supabase
+          .from("topics").select("*").eq("course_id", currentCourseId)
+          .eq("is_published", true).order("sort_order");
+        if (topicsError) throw topicsError;
+        let lessonsData: NavigationLesson[] = [];
+        if (topicsData?.length) {
+          const { data, error } = await supabase.from("lessons")
+            .select("id,topic_id,title,sort_order,duration_minutes,block_name")
+            .eq("is_published", true).in("topic_id", topicsData.map((t: Topic) => t.id)).order("sort_order");
+          if (error) throw error;
           lessonsData = data || [];
-          lessonsError = error;
         }
-
-        if (topicsError || lessonsError) {
-          console.warn("Supabase failed to fetch topics/lessons, checking cache...", topicsError || lessonsError);
-          const success = loadFromCache();
-          if (success) return;
+        const { data: progressData, error: progressError } = await supabase
+          .from("progress").select("*").eq("user_id", userId);
+        if (progressError) throw progressError;
+        const { data: courseData, error: courseError } = await supabase
+          .from("courses").select("sequential_access").eq("id", currentCourseId).single();
+        if (courseError || !courseData) throw new Error("Course access denied");
+        if (courseData.sequential_access && lessonData.sort_order !== 1 && profile?.role !== "admin") {
+          const { data: accessData, error: accessError } = await supabase
+            .from("user_lesson_access").select("id").eq("user_id", userId).eq("lesson_id", lessonId).maybeSingle();
+          if (accessError || !accessData) throw new Error("Lesson access denied");
         }
-
-        // Fetch progress
-        let progressData: Progress[] = [];
-        if (user?.id) {
-          const { data, error: progressError } = await supabase
-            .from("progress")
-            .select("*")
-            .eq("user_id", user.id);
-            
-          if (progressError) {
-            console.warn("Supabase failed to fetch progress, using cache for progress...", progressError);
-            const completedIdsStr = localStorage.getItem("lms-progress-completed-ids") || "[]";
-            try {
-              const cachedCompleted = JSON.parse(completedIdsStr);
-              if (Array.isArray(cachedCompleted)) {
-                progressData = cachedCompleted.map(id => ({
-                  user_id: user.id,
-                  lesson_id: id,
-                  completed: true,
-                  completed_at: new Date().toISOString(),
-                } as Progress));
-              }
-            } catch (e) {
-              console.error(e);
-            }
-          } else {
-            progressData = data || [];
-            // Cache the progress completed ids
-            if (typeof window !== "undefined") {
-              const completedIds = progressData.filter(p => p.completed).map(p => p.lesson_id);
-              localStorage.setItem("lms-progress-completed-ids", JSON.stringify(completedIds));
-            }
-          }
-        }
-
-        // Fetch lesson access for verification if it is a sequential access course
-        const { data: courseData, error: cErr } = await supabase
-          .from("courses")
-          .select("sequential_access")
-          .eq("id", currentCourseId)
-          .single();
-
-        setSequentialAccess(!!courseData?.sequential_access);
-
-        if (!cErr && courseData?.sequential_access && lessonData.sort_order !== 1 && profile?.role !== "admin") {
-          const { data: accessData, error: accessErr } = await supabase
-            .from("user_lesson_access")
-            .select("id")
-            .eq("user_id", user.id)
-            .eq("lesson_id", lessonId)
-            .maybeSingle();
-
-          if (accessErr || !accessData) {
-            console.warn("User does not have access to this lesson");
-            router.push("/dashboard");
-            return;
-          }
-        }
-
-        const completedIds = new Set(progressData.filter(p => p.completed).map(p => p.lesson_id));
-        setIsCompleted(completedIds.has(lessonId));
-        const topicsWithLessons: TopicWithLessons[] = (topicsData || []).map((topic: any) => ({
+        if (!active) return;
+        const completedIds = new Set((progressData as Progress[] || []).filter(p => p.completed).map(p => p.lesson_id));
+        const topicsWithLessons: TopicWithLessons[] = (topicsData as Topic[] || []).map(topic => ({
           ...topic,
-          lessons: (lessonsData || [])
-            .filter((l: any) => l.topic_id === topic.id)
-            .map((l: any) => ({ ...l, completed: completedIds.has(l.id) })),
+          lessons: lessonsData.filter(l => l.topic_id === topic.id).map(l => ({ ...l, completed: completedIds.has(l.id) })),
         }));
-
+        setLesson({ ...lessonData, topic: resolvedTopic } as LessonWithTopic);
+        setSequentialAccess(!!courseData.sequential_access);
+        setIsCompleted(completedIds.has(lessonId));
         setTopics(topicsWithLessons);
-
-        // Expand the current topic
-        const currentTopic = topicsWithLessons.find(t => 
-          t.lessons.some(l => l.id === lessonId)
-        );
-        if (currentTopic) {
-          setExpandedTopics(new Set([currentTopic.id]));
-        }
-      } catch (error) {
-        console.error("Error fetching lesson data:", error);
-        loadFromCache();
+        setExpandedTopics(new Set([resolvedTopic.id]));
+      } catch {
+        if (active) { setLesson(null); setTopics([]); }
       } finally {
-        setLoading(false);
+        if (active) { setLoadedFor(accessKey); setLoading(false); }
       }
     };
-
-    fetchData();
-  }, [lessonId, user?.id, userLoading, profile?.role]);
+    const timer = setTimeout(() => { void fetchData(); }, 0);
+    return () => { active = false; clearTimeout(timer); };
+  }, [lessonId, userId, userLoading, profile?.role, accessKey, router, supabase]);
 
   const handleToggleComplete = async () => {
     if (isCompleted) {
@@ -762,7 +567,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
   const prevLesson = currentIndex > 0 ? allLessons[currentIndex - 1] : null;
   const nextLesson = currentIndex < allLessons.length - 1 ? allLessons[currentIndex + 1] : null;
 
-  if (loading) {
+  if (loading || userLoading || !user || !profile || loadedFor !== accessKey || (profile.role !== "admin" && !profile.is_approved)) {
     return (
       <div className="flex h-screen">
         <div className="hidden lg:block w-80 border-r border-border p-4 space-y-3">
@@ -975,7 +780,9 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
             <div className="mb-8 rounded-2xl overflow-hidden border border-border bg-card">
               <div className="aspect-video">
                 <iframe
-                  src={lesson.video_url}
+                  src={/^https:\/\//.test(lesson.video_url) ? lesson.video_url : undefined}
+                  sandbox="allow-scripts allow-same-origin allow-presentation"
+                  referrerPolicy="no-referrer"
                   className="w-full h-full"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   allowFullScreen

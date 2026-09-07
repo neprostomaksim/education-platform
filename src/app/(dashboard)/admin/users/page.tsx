@@ -147,7 +147,9 @@ export default function AdminUsersPage() {
     const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
     let retVal = "";
     for (let i = 0, n = charset.length; i < length; ++i) {
-      retVal += charset.charAt(Math.floor(Math.random() * n));
+      let value = 255;
+      while (value >= Math.floor(256 / n) * n) value = crypto.getRandomValues(new Uint8Array(1))[0];
+      retVal += charset.charAt(value % n);
     }
     return retVal;
   };
@@ -461,7 +463,7 @@ export default function AdminUsersPage() {
                   required
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  placeholder="Минимум 6 символов"
+                  placeholder="Минимум 12 символов"
                   className="w-full px-3 py-2 rounded-xl bg-card border border-border text-foreground text-sm focus:outline-none focus:border-accent transition-colors"
                 />
               </div>

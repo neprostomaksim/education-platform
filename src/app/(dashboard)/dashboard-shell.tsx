@@ -72,7 +72,7 @@ export default function DashboardShell({
     router.refresh();
   };
 
-  if (loading) {
+  if (loading || !user || !profile) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">

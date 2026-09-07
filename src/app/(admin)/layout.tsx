@@ -1,3 +1,4 @@
+import { requirePageAccount } from "@/lib/security/auth";
 import type { Metadata } from "next";
 import AdminShell from "./admin-shell";
 
@@ -8,10 +9,11 @@ export const metadata: Metadata = {
   description: "Управление темами, уроками и пользователями AI Learning платформы",
 };
 
-export default function AdminLayout({
+export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  await requirePageAccount("admin");
   return <AdminShell>{children}</AdminShell>;
 }

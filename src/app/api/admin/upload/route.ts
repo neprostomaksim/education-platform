@@ -1,77 +1,37 @@
-import { createClient } from "@/lib/supabase/server";
+import sharp from "sharp";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { NextResponse } from "next/server";
-
-const BUCKET = "lesson-images";
-const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
-const ALLOWED = ["image/png", "image/jpeg", "image/webp", "image/gif"];
-
+import { requireApiAccount } from "@/lib/security/auth";
+import { requireSameOrigin, readBody, errorResponse, HttpError, privateHeaders } from "@/lib/security/http";
+import { rateLimit } from "@/lib/security/rate-limit";
 export async function POST(request: Request) {
   try {
-    // 1. Authenticate the caller (cookie session, or Bearer token fallback)
-    const authHeader = request.headers.get("Authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
-
-    const supabase = await createClient();
-    const { data: userData, error: authError } = token
-      ? await supabase.auth.getUser(token)
-      : await supabase.auth.getUser();
-    const user = userData?.user;
-
-    if (authError || !user) {
-      return NextResponse.json({ error: "Неавторизован" }, { status: 401 });
-    }
-
-    // 2. Verify the caller is an admin
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-
-    if (profileError || profile?.role !== "admin") {
-      return NextResponse.json({ error: "Доступ запрещен" }, { status: 403 });
-    }
-
-    // 3. Read and validate the uploaded file
-    const formData = await request.formData();
-    const file = formData.get("file");
-
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: "Файл не передан" }, { status: 400 });
-    }
-    if (!ALLOWED.includes(file.type)) {
-      return NextResponse.json(
-        { error: "Недопустимый формат. Разрешены PNG, JPEG, WEBP, GIF." },
-        { status: 400 }
-      );
-    }
-    if (file.size > MAX_BYTES) {
-      return NextResponse.json({ error: "Файл больше 10 МБ" }, { status: 400 });
-    }
-
-    // 4. Upload via the admin (service role) client — bypasses storage RLS
-    const adminClient = createAdminClient();
-    const ext = file.name.split(".").pop()?.toLowerCase() || "png";
-    const path = `lessons/${Date.now()}-${crypto.randomUUID()}.${ext}`;
-    const buffer = Buffer.from(await file.arrayBuffer());
-
-    const { error: uploadError } = await adminClient.storage
-      .from(BUCKET)
-      .upload(path, buffer, { contentType: file.type, upsert: false });
-
-    if (uploadError) {
-      return NextResponse.json(
-        { error: `Не удалось загрузить файл: ${uploadError.message}` },
-        { status: 500 }
-      );
-    }
-
-    const { data: publicData } = adminClient.storage.from(BUCKET).getPublicUrl(path);
-
-    return NextResponse.json({ success: true, url: publicData.publicUrl });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Внутренняя ошибка сервера";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+    requireSameOrigin(request);
+    const { user } = await requireApiAccount("admin");
+    await rateLimit(user.id, "upload", 20);
+    const contentType = request.headers.get("content-type") || "";
+    if (!contentType.startsWith("multipart/form-data")) throw new HttpError(415, "Ожидается файл");
+    const bytes = await readBody(request, 10 * 1024 * 1024 + 16384);
+    const form = await new Response(bytes as BodyInit, { headers: { "content-type": contentType } }).formData();
+    const file = form.get("file");
+    if (!(file instanceof File) || file.size === 0 || file.size > 10 * 1024 * 1024 ||
+        !["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type)) throw new HttpError(400, "Допускается изображение PNG, JPEG, WEBP или GIF до 10 МБ");
+    let image: Buffer;
+    try {
+      const raw = Buffer.from(await file.arrayBuffer());
+      const raster = raw.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) ||
+        (raw[0] === 255 && raw[1] === 216 && raw[2] === 255) ||
+        ["GIF87a", "GIF89a"].includes(raw.toString("ascii", 0, 6)) ||
+        (raw.toString("ascii", 0, 4) === "RIFF" && raw.toString("ascii", 8, 12) === "WEBP");
+      if (!raster) throw new Error();
+      const decoder = sharp(raw, { limitInputPixels: 25_000_000 });
+      const metadata = await decoder.metadata();
+      if (!metadata.format || !["png", "jpeg", "webp", "gif"].includes(metadata.format)) throw new Error();
+      // Re-encode instead of trusting filename or client MIME; strips active payloads/metadata.
+      image = await decoder.rotate().webp({ quality: 88 }).toBuffer();
+    } catch { throw new HttpError(400, "Не удалось прочитать изображение"); }
+    const key = `lessons/${crypto.randomUUID()}.webp`;
+    const { error } = await createAdminClient().storage.from("lesson-images").upload(key, image, { contentType: "image/webp", upsert: false });
+    if (error) throw new HttpError(503, "Не удалось загрузить изображение");
+    return Response.json({ success: true, url: `/api/lesson-images/${key}` }, { headers: privateHeaders });
+  } catch (error) { return errorResponse(error); }
 }

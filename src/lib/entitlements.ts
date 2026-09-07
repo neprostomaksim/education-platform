@@ -26,7 +26,7 @@ export async function getProductAccess(
     supabase.from("profiles").select("role").eq("id", user.id).maybeSingle(),
     supabase
       .from("entitlements")
-      .select("expires_at")
+      .select("expires_at,source")
       .eq("user_id", user.id)
       .eq("product", product)
       .maybeSingle(),
@@ -38,5 +38,10 @@ export async function getProductAccess(
     (entitlement.expires_at === null ||
       new Date(entitlement.expires_at) > new Date());
 
-  return { userId: user.id, hasAccess: isAdmin || entitled };
+  let paymentValid = true;
+  if (entitled && entitlement?.source?.startsWith("purchase:")) {
+    const { data, error } = await supabase.from("purchases").select("id").eq("claimed_by", user.id).eq("product", product).eq("status", "paid").limit(1);
+    paymentValid = !error && !!data?.length;
+  }
+  return { userId: user.id, hasAccess: isAdmin || (entitled && paymentValid) };
 }

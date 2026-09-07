@@ -1,3 +1,4 @@
+import { safeNext } from "@/lib/security/redirect";
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
@@ -46,6 +47,7 @@ export async function updateSession(request: NextRequest) {
                       request.nextUrl.pathname.startsWith("/register");
   const isProtectedRoute = request.nextUrl.pathname.startsWith("/dashboard") || 
                            request.nextUrl.pathname.startsWith("/lessons") ||
+                           request.nextUrl.pathname.startsWith("/courses") ||
                            request.nextUrl.pathname.startsWith("/admin") ||
                            request.nextUrl.pathname.startsWith("/prompts");
 
@@ -53,14 +55,19 @@ export async function updateSession(request: NextRequest) {
   if (!user && isProtectedRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
-    return NextResponse.redirect(url);
+    url.search = "";
+    url.searchParams.set("next", request.nextUrl.pathname + request.nextUrl.search);
+    const response = NextResponse.redirect(url);
+    supabaseResponse.cookies.getAll().forEach(cookie => response.cookies.set(cookie));
+    return response;
   }
 
   // Redirect authenticated users away from auth pages
   if (user && isAuthRoute) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
+    const url = new URL(safeNext(request.nextUrl.searchParams.get("next")), request.nextUrl.origin);
+    const response = NextResponse.redirect(url);
+    supabaseResponse.cookies.getAll().forEach(cookie => response.cookies.set(cookie));
+    return response;
   }
 
   return supabaseResponse;

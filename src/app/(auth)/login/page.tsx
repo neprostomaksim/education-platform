@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { safeNext } from "@/lib/security/redirect";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -33,7 +34,7 @@ export default function LoginPage() {
     } else {
       // Honor ?next= (e.g. the /claim activation flow); only same-origin paths.
       const next = new URLSearchParams(window.location.search).get("next");
-      router.push(next && next.startsWith("/") ? next : "/dashboard");
+      router.push(safeNext(next));
       router.refresh();
     }
   };
@@ -105,7 +106,11 @@ export default function LoginPage() {
       {/* Register link */}
       <p className="text-center text-sm text-muted mt-6">
         Нет аккаунта?{" "}
-        <Link href="/register" className="text-accent hover:text-accent-hover transition-colors font-medium">
+        <Link href="/register" onClick={event => {
+            event.preventDefault();
+            const next = safeNext(new URLSearchParams(window.location.search).get("next"));
+            router.push(`/register?next=${encodeURIComponent(next)}`);
+          }} className="text-accent hover:text-accent-hover transition-colors font-medium">
           Зарегистрироваться
         </Link>
       </p>
