@@ -2,61 +2,13 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getProductAccess } from "@/lib/entitlements";
-
-export const LIBRARY_KINDS = ["prompt", "skill", "tool"] as const;
-export type LibraryKind = (typeof LIBRARY_KINDS)[number];
-
-export const KIND_LABELS: Record<LibraryKind, string> = {
-  prompt: "Промпты",
-  skill: "Скилы",
-  tool: "Инструменты",
-};
-
-/** Full record — handed to the client only when the viewer is entitled. */
-export interface LibraryItem {
-  id: string;
-  kind: LibraryKind;
-  slug: string | null;
-  title: string;
-  description: string;
-  body: string | null;
-  source_url: string | null;
-  install_md: string | null;
-  platform: string | null;
-  category: string | null;
-  specialty: string;
-  tags: string[];
-  is_published: boolean;
-  sort_order: number;
-  created_at: string;
-}
-
-/** Safe subset for the paywall preview — never carries paid content. */
-export interface LibraryTeaser {
-  id: string;
-  kind: LibraryKind;
-  title: string;
-  description: string;
-  category: string | null;
-  tags: string[];
-}
+import type { LibraryData, LibraryItem, LibraryTeaser } from "@/lib/library-shared";
 
 const FULL_COLUMNS =
   "id, kind, slug, title, description, body, source_url, install_md, platform, category, specialty, tags, is_published, sort_order, created_at";
 // Teasers are fetched with the service role, so the column list is the only
 // thing standing between a non-buyer and the paid content. Keep it minimal.
 const TEASER_COLUMNS = "id, kind, title, description, category, tags";
-
-export interface LibraryData {
-  userId: string | null;
-  items: LibraryItem[];
-  teasers: LibraryTeaser[];
-  favorites: string[];
-  notes: Record<string, string>;
-  hasAccess: boolean;
-  isAdmin: boolean;
-  botUsername: string;
-}
 
 /**
  * Loads the library for the current viewer.

@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireApiAccount } from "@/lib/security/auth";
 import { requireSameOrigin, readJson, errorResponse, HttpError, privateHeaders } from "@/lib/security/http";
 import { rateLimit } from "@/lib/security/rate-limit";
-import { LIBRARY_KINDS } from "@/lib/library";
+import { LIBRARY_KINDS } from "@/lib/library-shared";
 
 const MAX_BODY_BYTES = 64_000;
 const LIMITS = { title: 200, description: 1000, body: 40_000, install_md: 20_000, platform: 80, category: 120, specialty: 40, slug: 120, note: 5_000 };

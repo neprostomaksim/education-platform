@@ -1,4 +1,4 @@
-import type { LibraryKind } from "@/lib/library";
+import type { LibraryKind } from "@/lib/library-shared";
 
 /** Visual identity per record type — one source of truth for badges and tabs. */
 export const KIND_META: Record<

@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { X, Copy, Check, Star, ExternalLink, SlidersHorizontal, Pencil, EyeOff, NotebookPen } from "lucide-react";
 import { extractVariables, buildPrompt, allVariablesFilled } from "@/lib/prompt-utils";
-import type { LibraryItem } from "@/lib/library";
+import type { LibraryItem } from "@/lib/library-shared";
 import { KIND_META } from "./kind-meta";
 
 interface LibraryDetailProps {

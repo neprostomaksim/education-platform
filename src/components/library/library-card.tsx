@@ -2,7 +2,7 @@
 
 import { Star, SlidersHorizontal, Link2, Pencil, EyeOff } from "lucide-react";
 import { extractVariables } from "@/lib/prompt-utils";
-import type { LibraryItem } from "@/lib/library";
+import type { LibraryItem } from "@/lib/library-shared";
 import { KIND_META } from "./kind-meta";
 
 interface LibraryCardProps {

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { X, Loader2, Trash2, Save } from "lucide-react";
 import { SPECIALTIES } from "@/lib/specialties";
-import { LIBRARY_KINDS, type LibraryItem, type LibraryKind } from "@/lib/library";
+import { LIBRARY_KINDS, type LibraryItem, type LibraryKind } from "@/lib/library-shared";
 import { KIND_META } from "./kind-meta";
 
 export interface LibraryDraft {

@@ -11,7 +11,7 @@ import { LibraryPaywall } from "@/components/library/library-paywall";
 import { LibraryForm, draftFrom, type LibraryDraft } from "@/components/library/library-form";
 import { KIND_META } from "@/components/library/kind-meta";
 import { SPECIALTIES, type Specialty } from "@/lib/specialties";
-import { LIBRARY_KINDS, type LibraryData, type LibraryKind } from "@/lib/library";
+import { LIBRARY_KINDS, type LibraryData, type LibraryKind } from "@/lib/library-shared";
 
 type KindFilter = LibraryKind | "all";
 

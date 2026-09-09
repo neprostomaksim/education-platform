@@ -1,7 +1,7 @@
 "use client";
 
 import { Lock, Send, Library } from "lucide-react";
-import type { LibraryTeaser } from "@/lib/library";
+import type { LibraryTeaser } from "@/lib/library-shared";
 import { KIND_META } from "./kind-meta";
 
 interface LibraryPaywallProps {
