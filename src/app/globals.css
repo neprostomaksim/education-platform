@@ -457,3 +457,12 @@ body {
 .prompts-search::placeholder {
   color: #71717A;
 }
+
+/* Horizontal scrollers (library type segments on small screens) */
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}

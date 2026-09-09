@@ -2,15 +2,16 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, X, Star, Library, Plus, EyeOff } from "lucide-react";
+import { Search, X, Star, Library, Plus, SlidersHorizontal, EyeOff } from "lucide-react";
 import { useToast } from "@/components/shared/toast-provider";
 import { createClient } from "@/lib/supabase/client";
 import { LibraryCard } from "@/components/library/library-card";
 import { LibraryDetail } from "@/components/library/library-detail";
 import { LibraryPaywall } from "@/components/library/library-paywall";
+import { LibraryFilters } from "@/components/library/library-filters";
 import { LibraryForm, draftFrom, type LibraryDraft } from "@/components/library/library-form";
 import { KIND_META } from "@/components/library/kind-meta";
-import { SPECIALTIES, type Specialty } from "@/lib/specialties";
+import { getSpecialtyInfo, type Specialty } from "@/lib/specialties";
 import { LIBRARY_KINDS, type LibraryData, type LibraryKind } from "@/lib/library-shared";
 
 type KindFilter = LibraryKind | "all";
@@ -31,15 +32,12 @@ export function LibraryClient({
   const [favorites, setFavorites] = useState<Set<string>>(new Set(initialFavorites));
   const [openId, setOpenId] = useState<string | null>(null);
   const [draft, setDraft] = useState<LibraryDraft | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
-  const categories = useMemo(
-    () => Array.from(new Set(items.map((i) => i.category).filter((c): c is string => !!c))).sort(),
-    [items]
-  );
-
-  const matches = (item: (typeof items)[number], ignore: "kind" | "category" | null) => {
-    if (ignore !== "kind" && kind !== "all" && item.kind !== kind) return false;
-    if (ignore !== "category" && category !== "all" && item.category !== category) return false;
+  /** `skip` lets a control count its own options without filtering itself out. */
+  const matches = (item: (typeof items)[number], skip: "kind" | "category" | null) => {
+    if (skip !== "kind" && kind !== "all" && item.kind !== kind) return false;
+    if (skip !== "category" && category !== "all" && item.category !== category) return false;
     if (specialty !== "all" && item.specialty !== specialty && item.specialty !== "all") return false;
     if (favoritesOnly && !favorites.has(item.id)) return false;
     if (draftsOnly && item.is_published) return false;
@@ -49,6 +47,7 @@ export function LibraryClient({
         item.title.toLowerCase().includes(q) ||
         item.description.toLowerCase().includes(q) ||
         (item.platform ?? "").toLowerCase().includes(q) ||
+        (item.category ?? "").toLowerCase().includes(q) ||
         item.tags.some((t) => t.toLowerCase().includes(q));
       if (!hit) return false;
     }
@@ -61,8 +60,26 @@ export function LibraryClient({
     [items, query, kind, category, specialty, favoritesOnly, draftsOnly, favorites]
   );
 
+  // Prompt topics and tool topics are different taxonomies, so categories are
+  // scoped to the selected type instead of merged into one meaningless list.
+  const categories = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      if (!item.category || !matches(item, "category")) continue;
+      counts.set(item.category, (counts.get(item.category) ?? 0) + 1);
+    }
+    return [...counts.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, kind, specialty, favoritesOnly, draftsOnly, favorites, query]);
+
+  const selectKind = (next: KindFilter) => {
+    setKind(next);
+    setCategory("all"); // категории у типов разные — старый выбор дал бы пустой список
+  };
+
   const toggleFavorite = async (id: string) => {
     if (!userId) return;
+    const previous = favorites;
     const next = new Set(favorites);
     const adding = !next.has(id);
     if (adding) next.add(id); else next.delete(id);
@@ -71,146 +88,162 @@ export function LibraryClient({
       ? await supabase.from("library_favorites").insert({ user_id: userId, item_id: id })
       : await supabase.from("library_favorites").delete().eq("user_id", userId).eq("item_id", id);
     if (error) {
-      setFavorites(favorites);
+      setFavorites(previous);
       addToast("Не удалось обновить избранное", "error");
     }
   };
 
   const openItem = openId ? items.find((i) => i.id === openId) ?? null : null;
-  const dirty = !!query.trim() || kind !== "all" || category !== "all" || specialty !== "all" || favoritesOnly || draftsOnly;
-  const reset = () => {
+  const draftCount = items.filter((i) => !i.is_published).length;
+  const extraFilters = (category !== "all" ? 1 : 0) + (specialty !== "all" ? 1 : 0) + (draftsOnly ? 1 : 0);
+  const anyFilter = extraFilters > 0 || favoritesOnly || kind !== "all" || !!query.trim();
+
+  const resetAll = () => {
     setQuery(""); setKind("all"); setCategory("all");
     setSpecialty("all"); setFavoritesOnly(false); setDraftsOnly(false);
   };
 
   if (!hasAccess) return <LibraryPaywall teasers={teasers} botUsername={botUsername} />;
 
-  const chip = (active: boolean) =>
-    `inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[12.5px] font-medium transition-all ${
+  const segment = (active: boolean) =>
+    `inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
       active
         ? "border-transparent bg-accent font-semibold text-accent-foreground"
         : "border-border bg-card text-muted hover:border-border-hover hover:text-foreground"
     }`;
 
+  const pill = "inline-flex items-center gap-1.5 rounded-full border border-border bg-card-hover px-2.5 py-1 text-[11.5px] text-muted";
+
   return (
     <div className="mx-auto max-w-6xl animate-fade-in p-4 lg:p-8">
-      <header className="mb-5 flex flex-wrap items-start gap-4">
-        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-accent/10">
-          <Library className="h-6 w-6 text-accent" />
+      {/* Header */}
+      <header className="mb-4 flex items-start gap-3 sm:gap-4">
+        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-accent/10 sm:h-12 sm:w-12">
+          <Library className="h-5 w-5 text-accent sm:h-6 sm:w-6" />
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground lg:text-3xl">Библиотека</h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted lg:text-base">
-            Промпты, скилы и инструменты для работы с ИИ — в одном поиске.
+          <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl lg:text-3xl">Библиотека</h1>
+          <p className="mt-0.5 text-[13px] text-muted sm:text-sm">
+            <b className="font-semibold tabular-nums text-foreground">{items.length}</b> материалов для работы с ИИ
           </p>
-          <div className="mt-3 flex flex-wrap gap-5 text-[12.5px] text-muted">
-            {LIBRARY_KINDS.map((k) => (
-              <span key={k}>
-                <b className="font-bold tabular-nums text-foreground">
-                  {items.filter((i) => i.kind === k).length}
-                </b>{" "}
-                {KIND_META[k].label.toLowerCase()}
-              </span>
-            ))}
-          </div>
         </div>
         {isAdmin && (
           <button
             type="button"
             onClick={() => setDraft(draftFrom(null))}
-            className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-hover"
+            className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-accent px-3 py-2.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-hover sm:px-4"
           >
-            <Plus className="h-4 w-4" /> Добавить
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">Добавить</span>
           </button>
         )}
       </header>
 
-      <div className="sticky top-0 z-10 -mx-4 mb-5 border-b border-border bg-background/85 px-4 py-3.5 backdrop-blur lg:-mx-8 lg:px-8">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-muted" />
-          <input
-            type="text" value={query} onChange={(e) => setQuery(e.target.value)}
-            placeholder="Поиск по названию, описанию, тегам…"
-            className="w-full rounded-xl border border-border bg-card py-3 pl-11 pr-11 text-[15px] text-foreground outline-none transition-all placeholder:text-muted-foreground focus:border-accent focus:ring-2 focus:ring-accent/15"
-          />
-          {query && (
-            <button type="button" onClick={() => setQuery("")} aria-label="Очистить"
-              className="absolute right-3 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-lg bg-card-hover text-muted hover:text-foreground">
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-
-        <div className="mt-3 flex flex-col gap-2.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="w-20 shrink-0 font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">Тип</span>
-            <button type="button" onClick={() => setKind("all")} className={chip(kind === "all")}>Все</button>
-            {LIBRARY_KINDS.map((k) => (
-              <button key={k} type="button" onClick={() => setKind(k)} className={chip(kind === k)}>
-                {KIND_META[k].emoji} {KIND_META[k].label}
-                <span className={`tabular-nums text-[10.5px] ${kind === k ? "text-accent-foreground/60" : "text-muted-foreground"}`}>
-                  {items.filter((i) => matches(i, "kind") && i.kind === k).length}
-                </span>
-              </button>
-            ))}
-            <button
-              type="button" onClick={() => setFavoritesOnly((v) => !v)}
-              className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[12.5px] font-medium transition-all ${
-                favoritesOnly ? "border-transparent bg-amber-400 font-semibold text-amber-950" : "border-border bg-card text-muted hover:border-border-hover hover:text-foreground"
-              }`}
-            >
-              <Star className="h-3.5 w-3.5" fill={favoritesOnly ? "currentColor" : "none"} />
-              Избранное
-              {favorites.size > 0 && <span className={favoritesOnly ? "text-amber-950/60" : "text-muted-foreground"}>{favorites.size}</span>}
-            </button>
-            {isAdmin && (
-              <button
-                type="button" onClick={() => setDraftsOnly((v) => !v)}
-                className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[12.5px] font-medium transition-all ${
-                  draftsOnly ? "border-transparent bg-warning font-semibold text-[#1a1206]" : "border-border bg-card text-muted hover:border-border-hover hover:text-foreground"
-                }`}
-              >
-                <EyeOff className="h-3.5 w-3.5" /> Черновики
-                <span className={draftsOnly ? "text-[#1a1206]/60" : "text-muted-foreground"}>
-                  {items.filter((i) => !i.is_published).length}
-                </span>
+      {/* Toolbar: search + type. Everything else lives behind «Фильтры». */}
+      <div className="sticky top-0 z-10 -mx-4 mb-4 border-b border-border bg-background/90 px-4 py-3 backdrop-blur lg:-mx-8 lg:px-8">
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+            <input
+              type="text" value={query} onChange={(e) => setQuery(e.target.value)}
+              placeholder="Поиск…"
+              className="w-full rounded-xl border border-border bg-card py-2.5 pl-10 pr-9 text-sm text-foreground outline-none transition-all placeholder:text-muted-foreground focus:border-accent focus:ring-2 focus:ring-accent/15"
+            />
+            {query && (
+              <button type="button" onClick={() => setQuery("")} aria-label="Очистить"
+                className="absolute right-2.5 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded-md bg-card-hover text-muted hover:text-foreground">
+                <X className="h-3 w-3" />
               </button>
             )}
           </div>
 
-          {categories.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="w-20 shrink-0 font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">Категория</span>
-              <button type="button" onClick={() => setCategory("all")} className={chip(category === "all")}>Все</button>
-              {categories.map((c) => (
-                <button key={c} type="button" onClick={() => setCategory(c)} className={chip(category === c)}>
-                  {c}
-                  <span className={`tabular-nums text-[10.5px] ${category === c ? "text-accent-foreground/60" : "text-muted-foreground"}`}>
-                    {items.filter((i) => matches(i, "category") && i.category === c).length}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
+          <button
+            type="button" onClick={() => setFavoritesOnly((v) => !v)}
+            aria-label="Только избранное"
+            title="Только избранное"
+            className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl border transition-colors ${
+              favoritesOnly
+                ? "border-transparent bg-amber-400 text-amber-950"
+                : "border-border bg-card text-muted hover:text-foreground"
+            }`}
+          >
+            <Star className="h-4 w-4" fill={favoritesOnly ? "currentColor" : "none"} />
+          </button>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="w-20 shrink-0 font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">Роль</span>
-            {SPECIALTIES.map((s) => (
-              <button key={s.id} type="button" onClick={() => setSpecialty(s.id)} className={chip(specialty === s.id)}>
-                {s.emoji} {s.label}
-              </button>
-            ))}
-          </div>
+          <button
+            type="button" onClick={() => setFiltersOpen(true)}
+            className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-sm font-medium transition-colors ${
+              extraFilters > 0
+                ? "border-accent/40 bg-accent/10 text-accent"
+                : "border-border bg-card text-muted hover:text-foreground"
+            }`}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            <span className="hidden sm:inline">Фильтры</span>
+            {extraFilters > 0 && (
+              <span className="grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] font-bold text-accent-foreground">
+                {extraFilters}
+              </span>
+            )}
+          </button>
+        </div>
+
+        <div className="hide-scrollbar mt-2.5 flex gap-2 overflow-x-auto">
+          <button type="button" onClick={() => selectKind("all")} className={segment(kind === "all")}>
+            Все
+            <span className={`tabular-nums text-[10.5px] ${kind === "all" ? "text-accent-foreground/60" : "text-muted-foreground"}`}>
+              {items.filter((i) => matches(i, "kind")).length}
+            </span>
+          </button>
+          {LIBRARY_KINDS.map((k) => (
+            <button key={k} type="button" onClick={() => selectKind(k)} className={segment(kind === k)}>
+              {KIND_META[k].emoji} {KIND_META[k].label}
+              <span className={`tabular-nums text-[10.5px] ${kind === k ? "text-accent-foreground/60" : "text-muted-foreground"}`}>
+                {items.filter((i) => matches(i, "kind") && i.kind === k).length}
+              </span>
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="mb-3.5 flex flex-wrap items-center justify-between gap-3">
+      {/* Active secondary filters, removable one by one */}
+      {extraFilters > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          {category !== "all" && (
+            <span className={pill}>
+              {category}
+              <button type="button" onClick={() => setCategory("all")} aria-label="Убрать категорию" className="text-muted-foreground hover:text-foreground">
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          )}
+          {specialty !== "all" && (
+            <span className={pill}>
+              {getSpecialtyInfo(specialty).emoji} {getSpecialtyInfo(specialty).label}
+              <button type="button" onClick={() => setSpecialty("all")} aria-label="Убрать роль" className="text-muted-foreground hover:text-foreground">
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          )}
+          {draftsOnly && (
+            <span className={pill}>
+              <EyeOff className="h-3 w-3 text-warning" /> Черновики
+              <button type="button" onClick={() => setDraftsOnly(false)} aria-label="Показать все" className="text-muted-foreground hover:text-foreground">
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <span className="text-[13px] text-muted">
-          Найдено <b className="font-semibold tabular-nums text-foreground">{results.length}</b> из {items.length}
+          <b className="font-semibold tabular-nums text-foreground">{results.length}</b>
+          {results.length !== items.length && <> из {items.length}</>}
         </span>
-        {dirty && (
-          <button type="button" onClick={reset} className="text-[12.5px] text-accent hover:text-accent-hover">
-            Сбросить фильтры
+        {anyFilter && (
+          <button type="button" onClick={resetAll} className="text-[12.5px] text-accent hover:text-accent-hover">
+            Сбросить
           </button>
         )}
       </div>
@@ -224,11 +257,11 @@ export function LibraryClient({
           <p className="mx-auto max-w-sm text-sm">
             {items.length === 0
               ? isAdmin ? "Нажмите «Добавить», чтобы положить сюда первый промпт, скил или инструмент." : "Скоро здесь появятся материалы."
-              : "Попробуйте другой тип, категорию или упростите запрос."}
+              : "Попробуйте другой запрос или сбросьте фильтры."}
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {results.map((item) => (
             <LibraryCard
               key={item.id} item={item} isAdmin={isAdmin}
@@ -242,6 +275,18 @@ export function LibraryClient({
             />
           ))}
         </div>
+      )}
+
+      {filtersOpen && (
+        <LibraryFilters
+          categories={categories} category={category} setCategory={setCategory}
+          specialty={specialty} setSpecialty={setSpecialty}
+          draftsOnly={draftsOnly} setDraftsOnly={setDraftsOnly}
+          draftCount={draftCount} isAdmin={isAdmin}
+          resultCount={results.length} hasActive={extraFilters > 0}
+          onReset={() => { setCategory("all"); setSpecialty("all"); setDraftsOnly(false); }}
+          onClose={() => setFiltersOpen(false)}
+        />
       )}
 
       {openItem && (
@@ -260,7 +305,7 @@ export function LibraryClient({
 
       {draft && (
         <LibraryForm
-          draft={draft} categories={categories}
+          draft={draft} categories={categories.map((c) => c.name)}
           onClose={() => setDraft(null)}
           onSaved={() => { setDraft(null); addToast("Сохранено", "success"); router.refresh(); }}
           onError={(message) => addToast(message, "error")}

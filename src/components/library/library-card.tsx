@@ -15,9 +15,10 @@ interface LibraryCardProps {
 }
 
 /**
- * Compact catalog card. Leads with what the record IS — type, title and the
- * one-line "what it does" — because that is how you find things again. The
- * payload (prompt text, install steps) lives in the detail view.
+ * Compact catalog card. Type, title and the one-line "what it does" carry the
+ * scan; everything else is muted secondary metadata on a single footer line, so
+ * a wall of cards stays readable. Tags live in the detail view — they are
+ * searchable, and repeating them here only added noise.
  */
 export function LibraryCard({
   item, isFavorite, isAdmin, onToggleFavorite, onOpen, onEdit,
@@ -33,78 +34,65 @@ export function LibraryCard({
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(item.id); }
       }}
-      className="group flex cursor-pointer flex-col gap-2.5 rounded-2xl border border-border bg-card p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-border-hover hover:shadow-[0_6px_22px_rgba(0,0,0,0.32)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      className="group flex cursor-pointer flex-col gap-2 rounded-2xl border border-border bg-card p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-border-hover hover:shadow-[0_6px_22px_rgba(0,0,0,0.32)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10.5px] font-semibold ${kind.badge}`}>
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${kind.badge}`}>
             {kind.emoji} {kind.one}
           </span>
           {isAdmin && !item.is_published && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2 py-1 text-[10.5px] font-semibold text-warning">
-              <EyeOff className="h-3 w-3" /> Черновик
+            <span className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[10px] font-semibold text-warning">
+              <EyeOff className="h-2.5 w-2.5" /> Черновик
             </span>
           )}
         </div>
-        <div className="-mr-1 -mt-1 flex shrink-0 items-center">
+        <div className="-mr-1.5 -mt-1.5 flex shrink-0 items-center">
           {isAdmin && (
             <span
-              role="button"
-              tabIndex={0}
-              aria-label="Редактировать"
+              role="button" tabIndex={0} aria-label="Редактировать"
               onClick={(e) => { e.stopPropagation(); onEdit(item.id); }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onEdit(item.id); }
               }}
-              className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-card-hover hover:text-foreground"
+              className="grid h-7 w-7 cursor-pointer place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-card-hover hover:text-foreground"
             >
               <Pencil className="h-3.5 w-3.5" />
             </span>
           )}
           <span
-            role="button"
-            tabIndex={0}
+            role="button" tabIndex={0}
             aria-label={isFavorite ? "Убрать из избранного" : "В избранное"}
             onClick={(e) => { e.stopPropagation(); onToggleFavorite(item.id); }}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onToggleFavorite(item.id); }
             }}
-            className={`grid h-8 w-8 cursor-pointer place-items-center rounded-lg transition-colors ${
+            className={`grid h-7 w-7 cursor-pointer place-items-center rounded-lg transition-colors ${
               isFavorite ? "text-amber-400" : "text-muted-foreground hover:bg-card-hover hover:text-amber-400"
             }`}
           >
-            <Star className="h-4 w-4" fill={isFavorite ? "currentColor" : "none"} />
+            <Star className="h-3.5 w-3.5" fill={isFavorite ? "currentColor" : "none"} />
           </span>
         </div>
       </div>
 
-      <h3 className="text-sm font-semibold leading-snug tracking-tight text-foreground">{item.title}</h3>
-      {item.description && <p className="text-xs leading-relaxed text-muted">{item.description}</p>}
-
-      <div className="mt-0.5 flex flex-wrap items-center gap-2">
-        {variables > 0 && (
-          <span className="inline-flex items-center gap-1 rounded-full border border-accent/25 bg-accent/10 px-2 py-1 font-mono text-[10.5px] font-medium text-accent">
-            <SlidersHorizontal className="h-3 w-3" />{variables} перем.
-          </span>
-        )}
-        {item.source_url && (
-          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-            <Link2 className="h-3 w-3" />ссылка
-          </span>
-        )}
-        {item.platform && <span className="text-[11px] text-muted-foreground">{item.platform}</span>}
-        {item.category && <span className="text-[11px] text-muted-foreground">{item.category}</span>}
-      </div>
-
-      {item.tags.length > 0 && (
-        <div className="mt-auto flex flex-wrap gap-1.5 pt-0.5">
-          {item.tags.slice(0, 3).map((tag) => (
-            <span key={tag} className="rounded-md border border-border bg-card-hover px-1.5 py-0.5 text-[10px] font-medium text-muted">
-              {tag}
-            </span>
-          ))}
-        </div>
+      <h3 className="line-clamp-2 text-sm font-semibold leading-snug tracking-tight text-foreground">
+        {item.title}
+      </h3>
+      {item.description && (
+        <p className="line-clamp-2 text-xs leading-relaxed text-muted">{item.description}</p>
       )}
+
+      <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-[11px] text-muted-foreground">
+        {variables > 0 && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-accent/25 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-accent">
+            <SlidersHorizontal className="h-2.5 w-2.5" />{variables}
+          </span>
+        )}
+        {item.platform && <span className="truncate">{item.platform}</span>}
+        {item.category && <span className="truncate">{item.category}</span>}
+        {item.source_url && <Link2 className="h-3 w-3 shrink-0" />}
+      </div>
     </div>
   );
 }
