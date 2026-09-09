@@ -49,18 +49,18 @@ export default function DashboardShell({
     });
   };
 
-  // Redirect to pending if not approved. Exception: /prompts is a standalone
-  // paid product gated by its own entitlement, so a prompts-only buyer (who is
+  // Redirect to pending if not approved. Exception: the library is a standalone
+  // paid product gated by its own entitlement, so a library-only buyer (who is
   // not is_approved for courses) must not be bounced to /pending there.
   useEffect(() => {
-    const promptsExempt = pathname?.startsWith("/prompts");
+    const libraryExempt = pathname?.startsWith("/library") || pathname?.startsWith("/prompts");
     if (
       !loading &&
       user &&
       profile &&
       profile.role !== "admin" &&
       !profile.is_approved &&
-      !promptsExempt
+      !libraryExempt
     ) {
       router.push("/pending");
     }
@@ -171,17 +171,17 @@ export default function DashboardShell({
             )}
 
             <Link
-              href="/prompts"
-              title={collapsed ? "Библиотека промптов" : undefined}
+              href="/library"
+              title={collapsed ? "Библиотека" : undefined}
               className={`${linkClass} ${
-                pathname?.startsWith("/prompts")
+                pathname?.startsWith("/library")
                   ? "bg-accent/10 text-accent"
                   : "text-muted hover:text-foreground hover:bg-sidebar-hover"
               }`}
               onClick={() => setSidebarOpen(false)}
             >
               <Sparkles className="w-4 h-4 shrink-0" />
-              <span className={labelClass}>Библиотека промптов</span>
+              <span className={labelClass}>Библиотека</span>
             </Link>
           </nav>
 

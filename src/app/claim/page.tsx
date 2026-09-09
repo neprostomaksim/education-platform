@@ -120,14 +120,14 @@ function Result({ status }: { status: string | null }) {
           tone="ok"
           icon={<Check className="h-7 w-7" />}
           title={status === "already_claimed" ? "Доступ уже открыт" : "Доступ открыт 🎉"}
-          sub="Библиотека промптов теперь ваша — навсегда. Она всегда в меню слева."
+          sub="Библиотека теперь ваша — навсегда, включая всё, что в неё добавится. Она всегда в меню слева."
         />
         <Link
-          href="/prompts"
+          href="/library"
           className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-5 py-3 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-hover"
         >
           <Sparkles className="h-4 w-4" />
-          Перейти к промптам
+          Перейти в библиотеку
         </Link>
       </>
     );

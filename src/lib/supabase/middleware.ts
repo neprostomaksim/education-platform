@@ -49,7 +49,8 @@ export async function updateSession(request: NextRequest) {
                            request.nextUrl.pathname.startsWith("/lessons") ||
                            request.nextUrl.pathname.startsWith("/courses") ||
                            request.nextUrl.pathname.startsWith("/admin") ||
-                           request.nextUrl.pathname.startsWith("/prompts");
+                           request.nextUrl.pathname.startsWith("/prompts") ||
+                           request.nextUrl.pathname.startsWith("/library");
 
   // Redirect unauthenticated users trying to access protected routes
   if (!user && isProtectedRoute) {
