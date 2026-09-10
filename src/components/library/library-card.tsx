@@ -80,7 +80,16 @@ export function LibraryCard({
         {item.title}
       </h3>
       {item.description && (
-        <p className="line-clamp-2 text-xs leading-relaxed text-muted">{item.description}</p>
+        <div className="group/desc relative">
+          <p className="line-clamp-2 text-xs leading-relaxed text-muted">{item.description}</p>
+          {/* Full text on hover — the clamped 2 lines often can't say what it is.
+              On touch (no hover) tapping the card opens the detail with full text. */}
+          {item.description.length > 88 && (
+            <div className="pointer-events-none absolute left-0 right-0 top-full z-30 mt-1.5 hidden rounded-xl border border-border bg-card-hover p-3 text-[12px] leading-relaxed text-foreground shadow-[0_12px_30px_rgba(0,0,0,0.55)] group-hover/desc:block">
+              {item.description}
+            </div>
+          )}
+        </div>
       )}
 
       <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-[11px] text-muted-foreground">
