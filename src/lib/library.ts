@@ -5,7 +5,7 @@ import { getProductAccess } from "@/lib/entitlements";
 import type { LibraryData, LibraryItem, LibraryTeaser } from "@/lib/library-shared";
 
 const FULL_COLUMNS =
-  "id, kind, slug, title, description, body, source_url, install_md, platform, category, specialty, tags, is_published, sort_order, created_at";
+  "id, kind, slug, title, description, body, source_url, install_md, platform, category, specialty, tags, is_published, sort_order, access, quick_install, created_at";
 // Teasers are fetched with the service role, so the column list is the only
 // thing standing between a non-buyer and the paid content. Keep it minimal.
 const TEASER_COLUMNS = "id, kind, title, description, category, tags";

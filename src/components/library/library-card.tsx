@@ -3,7 +3,7 @@
 import { Star, SlidersHorizontal, Link2, Pencil, EyeOff } from "lucide-react";
 import { extractVariables } from "@/lib/prompt-utils";
 import type { LibraryItem } from "@/lib/library-shared";
-import { KIND_META } from "./kind-meta";
+import { KIND_META, ACCESS_META } from "./kind-meta";
 
 interface LibraryCardProps {
   item: LibraryItem;
@@ -24,6 +24,7 @@ export function LibraryCard({
   item, isFavorite, isAdmin, onToggleFavorite, onOpen, onEdit,
 }: LibraryCardProps) {
   const kind = KIND_META[item.kind];
+  const access = ACCESS_META[item.access];
   const variables = item.kind === "prompt" && item.body ? extractVariables(item.body).length : 0;
 
   return (
@@ -93,13 +94,25 @@ export function LibraryCard({
       )}
 
       <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-[11px] text-muted-foreground">
+        {item.kind !== "prompt" && (
+          <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${access.badge}`}>
+            {access.emoji} {access.short}
+          </span>
+        )}
+        {item.quick_install && (
+          <span
+            title="Ставится одной командой по ссылке"
+            className="inline-flex items-center gap-0.5 rounded-full border border-accent/25 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent"
+          >
+            ⚡ по ссылке
+          </span>
+        )}
         {variables > 0 && (
           <span className="inline-flex items-center gap-1 rounded-full border border-accent/25 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-accent">
             <SlidersHorizontal className="h-2.5 w-2.5" />{variables}
           </span>
         )}
         {item.platform && <span className="truncate">{item.platform}</span>}
-        {item.category && <span className="truncate">{item.category}</span>}
         {item.source_url && <Link2 className="h-3 w-3 shrink-0" />}
       </div>
     </div>

@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { X, Loader2, Trash2, Save } from "lucide-react";
 import { SPECIALTIES } from "@/lib/specialties";
-import { LIBRARY_KINDS, type LibraryItem, type LibraryKind } from "@/lib/library-shared";
-import { KIND_META } from "./kind-meta";
+import { LIBRARY_KINDS, LIBRARY_ACCESS, type LibraryItem, type LibraryKind } from "@/lib/library-shared";
+import { KIND_META, ACCESS_META } from "./kind-meta";
 
 export interface LibraryDraft {
   id?: string;
@@ -19,6 +19,8 @@ export interface LibraryDraft {
   specialty: string;
   tags: string;
   is_published: boolean;
+  access: string;
+  quick_install: string;
   admin_note: string;
 }
 
@@ -36,6 +38,8 @@ export function draftFrom(item: LibraryItem | null, note = ""): LibraryDraft {
     specialty: item?.specialty ?? "all",
     tags: (item?.tags ?? []).join(", "),
     is_published: item?.is_published ?? true,
+    access: item?.access ?? "none",
+    quick_install: item?.quick_install ?? "",
     admin_note: note,
   };
 }
@@ -85,6 +89,8 @@ export function LibraryForm({ draft, categories, onClose, onSaved, onError }: Li
         specialty: form.specialty || "all",
         tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
         is_published: form.is_published,
+        access: form.access,
+        quick_install: form.quick_install || null,
         admin_note: form.admin_note,
       };
       await send(form.id ? "PATCH" : "POST", payload);
@@ -189,6 +195,20 @@ export function LibraryForm({ draft, categories, onClose, onSaved, onError }: Li
                 <textarea value={form.install_md} onChange={(e) => set("install_md", e.target.value)}
                   rows={6} placeholder={"1. Склонируйте репозиторий\n2. `npm install`"}
                   className={`${field} resize-y font-mono text-[12.5px]`} />
+              </div>
+              <div>
+                <label className={label}>Доступ — нужен ли ключ</label>
+                <select value={form.access} onChange={(e) => set("access", e.target.value)} className={field}>
+                  {LIBRARY_ACCESS.map((a) => (
+                    <option key={a} value={a}>{ACCESS_META[a].emoji} {ACCESS_META[a].label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={label}>Установка одной командой (по ссылке)</label>
+                <input value={form.quick_install} onChange={(e) => set("quick_install", e.target.value)}
+                  placeholder="npx skills add https://github.com/... или /plugin install ..."
+                  className={`${field} font-mono text-[12.5px]`} />
               </div>
             </>
           )}

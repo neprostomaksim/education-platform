@@ -3,10 +3,10 @@
 import { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { X, Copy, Check, Star, ExternalLink, SlidersHorizontal, Pencil, EyeOff, NotebookPen } from "lucide-react";
+import { X, Copy, Check, Star, ExternalLink, SlidersHorizontal, Pencil, EyeOff, NotebookPen, Zap } from "lucide-react";
 import { extractVariables, buildPrompt, allVariablesFilled } from "@/lib/prompt-utils";
 import type { LibraryItem } from "@/lib/library-shared";
-import { KIND_META } from "./kind-meta";
+import { KIND_META, ACCESS_META } from "./kind-meta";
 
 interface LibraryDetailProps {
   item: LibraryItem;
@@ -23,9 +23,28 @@ export function LibraryDetail({
   item, note, isFavorite, isAdmin, onToggleFavorite, onEdit, onClose, onCopied,
 }: LibraryDetailProps) {
   const kind = KIND_META[item.kind];
+  const access = ACCESS_META[item.access];
   const variables = useMemo(() => (item.body ? extractVariables(item.body) : []), [item.body]);
   const [values, setValues] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<"filled" | "raw" | null>(null);
+  const [copiedCmd, setCopiedCmd] = useState(false);
+
+  const copyCmd = async () => {
+    const cmd = item.quick_install ?? "";
+    try {
+      await navigator.clipboard.writeText(cmd);
+    } catch {
+      const area = document.createElement("textarea");
+      area.value = cmd;
+      document.body.appendChild(area);
+      area.select();
+      document.execCommand("copy");
+      document.body.removeChild(area);
+    }
+    setCopiedCmd(true);
+    onCopied("Команда скопирована");
+    setTimeout(() => setCopiedCmd(false), 1700);
+  };
 
   const copy = async (text: string, which: "filled" | "raw", message: string) => {
     try {
@@ -133,6 +152,40 @@ export function LibraryDetail({
 
         {/* Body */}
         <div className="overflow-y-auto p-5 sm:p-6">
+          {/* Что нужно, чтобы этим пользоваться — простыми словами */}
+          {item.kind !== "prompt" && (
+            <div className={`mb-4 flex items-start gap-2.5 rounded-xl border p-3.5 ${access.badge}`}>
+              <span className="text-base leading-none">{access.emoji}</span>
+              <div className="min-w-0">
+                <div className="text-[12.5px] font-semibold">{access.label}</div>
+                <p className="mt-0.5 text-[11.5px] leading-relaxed opacity-90">{access.hint}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Установка одной командой по ссылке — когда доступна */}
+          {item.quick_install && (
+            <div className="mb-4 rounded-xl border border-accent/25 bg-accent/[0.06] p-3.5">
+              <div className="mb-2 flex items-center gap-1.5 text-[12.5px] font-semibold text-foreground">
+                <Zap className="h-4 w-4 text-accent" /> Установка одной командой
+              </div>
+              <div className="flex items-center gap-2">
+                <code className="hide-scrollbar min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-lg border border-border bg-background px-3 py-2 font-mono text-[12px] text-accent">
+                  {item.quick_install}
+                </code>
+                <button
+                  type="button" onClick={copyCmd} aria-label="Скопировать команду"
+                  className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition-colors ${
+                    copiedCmd ? "border-success/40 bg-success/15 text-success" : "border-border bg-card-hover text-muted hover:text-foreground"
+                  }`}
+                >
+                  {copiedCmd ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </button>
+              </div>
+              <p className="mt-1.5 text-[11px] text-muted-foreground">Вставьте в терминал или прямо в Claude Code.</p>
+            </div>
+          )}
+
           {item.source_url && (
             <a
               href={item.source_url}

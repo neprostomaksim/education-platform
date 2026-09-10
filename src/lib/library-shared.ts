@@ -5,6 +5,10 @@
 export const LIBRARY_KINDS = ["prompt", "skill", "tool"] as const;
 export type LibraryKind = (typeof LIBRARY_KINDS)[number];
 
+// What a viewer needs to actually use the item.
+export const LIBRARY_ACCESS = ["none", "session", "claude_key", "service_key"] as const;
+export type LibraryAccess = (typeof LIBRARY_ACCESS)[number];
+
 /** Full record — handed to the client only when the viewer is entitled. */
 export interface LibraryItem {
   id: string;
@@ -21,6 +25,8 @@ export interface LibraryItem {
   tags: string[];
   is_published: boolean;
   sort_order: number;
+  access: LibraryAccess;
+  quick_install: string | null;
   created_at: string;
 }
 

@@ -2,10 +2,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireApiAccount } from "@/lib/security/auth";
 import { requireSameOrigin, readJson, errorResponse, HttpError, privateHeaders } from "@/lib/security/http";
 import { rateLimit } from "@/lib/security/rate-limit";
-import { LIBRARY_KINDS } from "@/lib/library-shared";
+import { LIBRARY_KINDS, LIBRARY_ACCESS } from "@/lib/library-shared";
 
 const MAX_BODY_BYTES = 64_000;
-const LIMITS = { title: 200, description: 1000, body: 40_000, install_md: 20_000, platform: 80, category: 120, specialty: 40, slug: 120, note: 5_000 };
+const LIMITS = { title: 200, description: 1000, body: 40_000, install_md: 20_000, platform: 80, category: 120, specialty: 40, slug: 120, note: 5_000, quick_install: 400 };
 
 function str(value: unknown, max: number, field: string): string | null {
   if (value === null || value === undefined || value === "") return null;
@@ -32,6 +32,13 @@ function tags(value: unknown): string[] {
   return Array.from(new Set(list));
 }
 
+function accessValue(value: unknown): string {
+  if (typeof value !== "string" || !(LIBRARY_ACCESS as readonly string[]).includes(value)) {
+    throw new HttpError(400, "Неизвестный тип доступа");
+  }
+  return value;
+}
+
 function fields(payload: Record<string, unknown>, requireKind: boolean) {
   const kind = payload.kind;
   if (requireKind || kind !== undefined) {
@@ -53,6 +60,8 @@ function fields(payload: Record<string, unknown>, requireKind: boolean) {
     ...(payload.specialty !== undefined ? { specialty: str(payload.specialty, LIMITS.specialty, "роль") ?? "all" } : {}),
     ...(payload.slug !== undefined ? { slug: str(payload.slug, LIMITS.slug, "slug") } : {}),
     ...(payload.tags !== undefined ? { tags: tags(payload.tags) } : {}),
+    ...(payload.access !== undefined ? { access: accessValue(payload.access) } : {}),
+    ...(payload.quick_install !== undefined ? { quick_install: str(payload.quick_install, LIMITS.quick_install, "быстрая установка") } : {}),
     ...(payload.is_published !== undefined ? { is_published: payload.is_published !== false } : {}),
     ...(payload.sort_order !== undefined ? { sort_order: Number(payload.sort_order) || 0 } : {}),
   };
