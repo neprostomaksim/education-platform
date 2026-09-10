@@ -9,9 +9,9 @@ export async function POST(request: Request) {
     await rateLimit(user.id, "create-user", 10);
     const { email, password, fullName, role, isApproved } = await readJson(request);
     if (typeof email !== "string" || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
-        typeof password !== "string" || password.length < 12 || password.length > 128 ||
+        typeof password !== "string" || password.length < 6 || password.length > 128 ||
         typeof fullName !== "string" || !fullName.trim() || fullName.length > 200 ||
-        !["admin", "student"].includes(String(role)) || typeof isApproved !== "boolean") throw new HttpError(400, "Проверьте поля. Пароль должен содержать 12–128 символов");
+        !["admin", "student"].includes(String(role)) || typeof isApproved !== "boolean") throw new HttpError(400, "Проверьте поля. Пароль должен содержать 6–128 символов");
     const admin = createAdminClient();
     const { data, error } = await admin.auth.admin.createUser({ email: email.trim(), password, email_confirm: true, user_metadata: { full_name: fullName.trim() } });
     if (error || !data.user) throw new HttpError(400, "Не удалось создать аккаунт. Проверьте email и требования к паролю");

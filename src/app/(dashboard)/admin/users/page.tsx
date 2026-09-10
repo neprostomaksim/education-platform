@@ -463,7 +463,7 @@ export default function AdminUsersPage() {
                   required
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  placeholder="Минимум 12 символов"
+                  placeholder="Минимум 6 символов"
                   className="w-full px-3 py-2 rounded-xl bg-card border border-border text-foreground text-sm focus:outline-none focus:border-accent transition-colors"
                 />
               </div>

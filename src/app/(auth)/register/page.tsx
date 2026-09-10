@@ -23,8 +23,8 @@ export default function RegisterPage() {
     setLoading(true);
     setError(null);
 
-    if (password.length < 12) {
-      setError("Пароль должен содержать минимум 12 символов");
+    if (password.length < 6) {
+      setError("Пароль должен содержать минимум 6 символов");
       setLoading(false);
       return;
     }
@@ -129,7 +129,7 @@ export default function RegisterPage() {
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Минимум 12 символов"
+              placeholder="Минимум 6 символов"
               required
               className="w-full pl-10 pr-12 py-3 rounded-xl bg-input border border-border focus:border-accent focus:ring-1 focus:ring-accent outline-none text-sm text-foreground placeholder:text-muted-foreground transition-colors"
             />
