@@ -64,6 +64,6 @@ export const ACCESS_META: Record<
     emoji: "🗝️",
     badge: "text-warning bg-warning/10 border-warning/30",
     needsKey: true,
-    hint: "Нужен API-ключ стороннего сервиса (не Claude) — см. инструкцию по установке.",
+    hint: "Нужен API-ключ внешнего сервиса (например, LLM-провайдера или платного API) — какой именно, см. в инструкции по установке.",
   },
 };
